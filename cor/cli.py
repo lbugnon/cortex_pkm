@@ -12,8 +12,7 @@ import click
 import frontmatter
 
 from . import __version__
-
-from .commands import daily, projects, weekly, tree, review, rename, group, process
+from .commands import daily, projects, weekly, tree, review, rename, group, process, refine
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
 from .config import set_vault_path, load_config, CONFIG_FILE, set_verbosity, get_verbosity
 from .maintenance import MaintenanceRunner
@@ -66,6 +65,7 @@ cli.add_command(rename)
 cli.add_command(rename, name="move")  # Alias for rename
 cli.add_command(group)
 cli.add_command(process)
+cli.add_command(refine)
 
 
 @cli.command()

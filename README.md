@@ -149,6 +149,7 @@ tags: [coding, urgent]
 | `cor move <old> <new>` | Alias of rename (conceptually better for moving groups/tasks) |
 | `cor group <project.group> <tasks>` | Group existing tasks under a new task group |
 | `cor process` | Process backlog items into projects |
+| `cor refine` | Refine project goals and scope with LLM assistance |
 | `cor hooks install` | Install pre-commit hook and shell completion |
 | `cor hooks uninstall` | Remove git hooks |
 | `cor config set vault <path>` | Set global vault path |
