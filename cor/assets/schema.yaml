@@ -1,0 +1,64 @@
+# Cortex Metadata Schema
+# Defines valid values for all frontmatter fields
+
+common:
+  created:
+    type: date
+    format: YYYY-MM-DD HH:MM
+    description: Datetime file was created
+    auto: true  # Set automatically by `cor new`
+
+  modified:
+    type: date
+    format: YYYY-MM-DD HH:MM
+    description: Datetime file was last modified
+    auto: true  # Updated by git pre-commit hook
+
+  tags:
+    type: list
+    items: string
+    description: Freeform tags for categorization
+
+  due:
+    type: date
+    format: YYYY-MM-DD
+    description: Deadline for completion
+    optional: true
+
+  priority:
+    type: enum
+    values: [low, medium, high]
+    description: Urgency level
+    optional: true
+
+project:
+  status:
+    type: enum
+    values: [planning, active, paused, done]
+    default: planning
+    description: |
+      planning  - Defining goals/scope
+      active    - Currently being worked on
+      paused    - Temporarily on hold
+      done  - Done, goals achieved
+
+task:
+  type:
+    type: const
+    value: task
+
+  status:
+    type: enum
+    values: [todo, active, blocked, done, dropped, waiting]
+    default: todo
+    description: |
+      todo    - Ready to start
+      active  - Currently in progress
+      blocked - Waiting on something
+      done    - Completed
+      dropped - Cancelled/abandoned
+      waiting - Active but external (someone/something else work)
+note:
+  type:
+    type: const
+    value: note

@@ -1,0 +1,1267 @@
+"""Maintenance operations for cortex notes.
+
+This module contains file manipulation operations that can be run:
+- Automatically via pre-commit hook
+- Manually via `cor maintenance sync` command
+"""
+
+import re
+import shutil
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import frontmatter
+
+from .schema import VALID_PRIORITY, VALID_PROJECT_STATUS, VALID_TASK_STATUS, STATUS_SYMBOLS
+
+
+# Compiled regex patterns
+LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+EXTERNAL_PREFIXES = ('http://', 'https://', '#', 'mailto:')
+
+
+@dataclass
+class SyncResult:
+    """Result of a sync operation for dry-run and reporting."""
+    archived: list[tuple[str, str]] = field(default_factory=list)  # (old_path, new_path)
+    unarchived: list[tuple[str, str]] = field(default_factory=list)
+    group_status_updated: list[str] = field(default_factory=list)
+    project_status_updated: list[str] = field(default_factory=list)
+    checkbox_synced: list[str] = field(default_factory=list)
+    tasks_sorted: list[str] = field(default_factory=list)
+    links_updated: list[str] = field(default_factory=list)
+    modified_dates_updated: list[str] = field(default_factory=list)
+    deleted_links_removed: list[str] = field(default_factory=list)
+    errors: dict[str, list[str]] = field(default_factory=dict)
+
+
+# --- Static helper functions ---
+
+def is_external_link(target: str) -> bool:
+    """Check if link target is external (URL, anchor, mailto)."""
+    return target.startswith(EXTERNAL_PREFIXES)
+
+
+def load_note(filepath: str | Path) -> frontmatter.Post | None:
+    """Load a note file and return the frontmatter Post object."""
+    path = Path(filepath)
+    if not path.exists():
+        return None
+    try:
+        return frontmatter.load(path)
+    except Exception:
+        return None
+
+
+def save_note(filepath: str | Path, post: frontmatter.Post) -> None:
+    """Save a frontmatter Post object to a file."""
+    path = Path(filepath)
+    with open(path, 'wb') as f:
+        frontmatter.dump(post, f, sort_keys=False)
+
+
+def get_frontmatter(filepath: str) -> dict | None:
+    """Parse and return frontmatter as dict."""
+    post = load_note(filepath)
+    if post is None:
+        return None
+    return dict(post.metadata)
+
+
+def update_field(filepath: str | Path, field: str, value: Any, dry_run: bool = False) -> bool:
+    """Update a single field in frontmatter. Returns True if changed."""
+    post = load_note(filepath)
+    if post is None:
+        return False
+
+    if post.get(field) == value:
+        return False
+
+    post[field] = value
+    if not dry_run:
+        save_note(filepath, post)
+    return True
+
+
+def add_field_after(filepath: str | Path, field: str, value: Any, after_field: str, dry_run: bool = False) -> bool:
+    """Add a field after another field in frontmatter. Returns True if added."""
+    post = load_note(filepath)
+    if post is None:
+        return False
+
+    if field in post.metadata:
+        return False
+
+    # Reconstruct metadata with new field after the target field
+    new_metadata = {}
+    added = False
+    for key, val in post.metadata.items():
+        new_metadata[key] = val
+        if key == after_field:
+            new_metadata[field] = value
+            added = True
+
+    if not added:
+        new_metadata[field] = value
+
+    post.metadata = new_metadata
+    if not dry_run:
+        save_note(filepath, post)
+    return True
+
+
+def get_parent_name(filepath: str) -> str | None:
+    """Extract parent name from filename (project.group.task -> project.group)."""
+    from .utils import get_parent_name as _get_parent_name
+    return _get_parent_name(Path(filepath).stem)
+
+
+def infer_type(filepath: str, meta: dict | None) -> str:
+    """Infer note type from filename when not specified in frontmatter.
+
+    Priority:
+    1. Explicit type in frontmatter
+    2. Special files (backlog, root)
+    3. Contains .task in filename -> task
+    4. Contains .note in filename -> note
+    5. Otherwise -> project
+    """
+    if meta and meta.get("type"):
+        return meta.get("type")
+
+    stem = Path(filepath).stem
+    if stem in ("backlog", "root"):
+        return "special"
+    if ".task" in stem:
+        return "task"
+    if ".note" in stem:
+        return "note"
+    return "project"
+
+
+def should_archive(filepath: str, meta: dict) -> bool:
+    """Check if file should be archived based on type and status."""
+    note_type = meta.get("type")
+    status = meta.get("status")
+
+    if note_type == "project" and status == "done":
+        return True
+    if note_type == "task" and (status == "done" or status == "dropped"):
+        return True
+    return False
+
+
+def should_unarchive(filepath: str, meta: dict) -> bool:
+    """Check if archived file should be moved back to notes (no longer done)."""
+    note_type = meta.get("type")
+    status = meta.get("status")
+
+    # Only unarchive if status is explicitly set and not done
+    if not status:
+        return False
+    if note_type == "project" and status != "done":
+        return True
+    if note_type == "task" and (status != "done" and status != "dropped"):
+        return True
+    return False
+
+
+def get_title_from_file(filepath: str | Path) -> str:
+    """Extract title from markdown file (from # heading or filename)."""
+    path = Path(filepath)
+    try:
+        post = load_note(path)
+        if post is None:
+            return format_title(path.stem)
+        
+        # Try to get from first heading
+        for line in post.content.split("\n"):
+            if line.startswith("# "):
+                return line[2:].strip()
+        
+        # Fall back to formatted filename
+        from .utils import format_title
+        return format_title(path.stem)
+    except Exception:
+        from .utils import format_title
+        return format_title(path.stem)
+
+
+# --- Validation functions ---
+
+def validate_frontmatter(filepath: str, notes_dir: Path) -> list[str]:
+    """Validate frontmatter values. Returns list of errors."""
+    path = Path(filepath)
+    if not path.exists():
+        # Try resolving relative to notes_dir
+        path = notes_dir / filepath
+        if not path.exists():
+            return []
+
+    try:
+        post = frontmatter.load(path)
+    except Exception:
+        return ["Invalid YAML in frontmatter"]
+
+    meta = post.metadata
+    if not meta:
+        return []
+
+    errors = []
+    note_type = meta.get("type")
+
+    # Validate status
+    status = meta.get("status")
+    if status:
+        if note_type == "task":
+            if status not in VALID_TASK_STATUS:
+                errors.append(
+                    f"Invalid task status '{status}'. "
+                    f"Valid: {', '.join(sorted(VALID_TASK_STATUS))}"
+                )
+        elif note_type == "project":
+            if status not in VALID_PROJECT_STATUS:
+                errors.append(
+                    f"Invalid project status '{status}'. "
+                    f"Valid: {', '.join(sorted(VALID_PROJECT_STATUS))}"
+                )
+
+    # Validate priority
+    priority = meta.get("priority")
+    if priority and priority not in VALID_PRIORITY:
+        errors.append(
+            f"Invalid priority '{priority}'. "
+            f"Valid: {', '.join(sorted(VALID_PRIORITY))}"
+        )
+
+    return errors
+
+
+def validate_links(filepath: str, notes_dir: Path) -> list[str]:
+    """Validate that markdown links point to existing files. Returns list of errors. Md links are in the form [text](some_path/some_target), this link point to file some_path/some_target.md, relative path to the file containing the link. Input filepath is relative to vault root."""
+    
+    path = notes_dir / filepath
+    if not path.exists() or "templates/" in str(filepath):
+        return []
+
+    content = path.read_text()
+    errors = []
+
+    base_dir = notes_dir
+    if (notes_dir / "archive") in path.parents:
+        base_dir = notes_dir / "archive"
+
+    for match in LINK_PATTERN.finditer(content):
+        link_text, target = match.groups()
+
+        if is_external_link(target):
+            continue
+        # Build target absolute path - handle relative paths correctly
+        # If the link starts with ../, resolve it relative to the file's directory
+        if "../" in target:
+            target_path = (path.parent / (target + ".md"))
+        else:
+            target_path = (base_dir / (target + ".md"))
+        
+        if not target_path.exists():
+            errors.append(f"Broken link: [{link_text}]({target}) -> file {target_path} not found")
+
+    return errors
+
+class MaintenanceRunner:
+    """Runs maintenance operations on a set of files.
+
+    Args:
+        notes_dir: Path to the notes directory
+        dry_run: If True, compute changes but don't apply them
+    """
+
+    def __init__(self, notes_dir: Path, dry_run: bool = False):
+        self.notes_dir = notes_dir
+        self.archive_dir = notes_dir / "archive"
+        self.dry_run = dry_run
+
+    def find_file_in_notes(self, filename: str) -> Path | None:
+        """Find a file in notes/ or notes/archive/."""
+        path = self.notes_dir / filename
+        if path.exists():
+            return path
+        path = self.archive_dir / filename
+        if path.exists():
+            return path
+        return None
+
+    def find_parent_file(self, parent_name: str) -> Path | None:
+        """Find parent file in notes/ or notes/archive/."""
+        return self.find_file_in_notes(f"{parent_name}.md")
+
+    def find_children_files(self, parent_name: str) -> list[Path]:
+        """Find all children files of a parent (project or task group)."""
+        children = []
+        for directory in [self.notes_dir, self.archive_dir]:
+            if not directory.exists():
+                continue
+            for path in directory.glob(f"{parent_name}.*.md"):
+                children.append(path)
+        return children
+
+    def get_incomplete_tasks(self, project_name: str) -> list[str]:
+        """Find all tasks of a project that are not done or dropped."""
+        incomplete = []
+        children = self.find_children_files(project_name)
+
+        for child_path in children:
+            meta = get_frontmatter(str(child_path))
+            if not meta:
+                continue
+
+            if meta.get("type") != "task":
+                continue
+
+            status = meta.get("status", "todo")
+            if status not in ("done", "dropped"):
+                incomplete.append(child_path.name)
+
+        return incomplete
+
+    def sync(self, files: list[str], renamed: list[tuple[str, str]] = None,
+             deleted: list[str] = None) -> SyncResult:
+        """Run full sync on the given files.
+
+        This is the main entry point that runs all maintenance operations
+        in the correct order: sync first (fix links), then validate.
+
+        Args:
+            files: List of modified/added files to sync
+            renamed: List of (old_path, new_path) tuples for renamed files
+            deleted: List of deleted files to clean up references for
+        """
+        result = SyncResult()
+        staged_files = list(files)  # Make a copy to modify
+
+        # === SYNC OPERATIONS FIRST (fix links before validation) ===
+
+        # Handle deleted files - remove references from parents
+        if deleted:
+            deleted_updates = self.handle_deleted_files(deleted)
+            result.deleted_links_removed.extend(deleted_updates)
+            # Add parent files to staged_files for further processing
+            for parent_path in deleted_updates:
+                if parent_path not in staged_files:
+                    staged_files.append(parent_path)
+
+        # Handle renamed files - update links in parents
+        if renamed:
+            rename_updates, rename_errors = self.handle_renamed_files(renamed)
+            if rename_errors:
+                result.errors["renames"] = rename_errors
+                return result  # Stop on rename errors (structural issue)
+            result.links_updated.extend(rename_updates)
+            # Add renamed files to staged_files for further processing
+            for _, new_path in renamed:
+                if new_path not in staged_files:
+                    staged_files.append(new_path)
+    
+        # Update modified dates
+        for filepath in staged_files:
+            if self.update_modified_date(filepath):
+                result.modified_dates_updated.append(filepath)
+
+        # IMPORTANT: Archive/unarchive MUST happen before sync_task_status_to_project
+        # so that file locations are correct when updating parent checkboxes
+
+        # Unarchive reactivated projects and tasks FIRST
+        unarchived, unarchived_link_updates = self.unarchive_reactivated(staged_files)
+        result.unarchived.extend(unarchived)
+        result.links_updated.extend(unarchived_link_updates)
+
+        # Update staged_files list with new paths
+        for old, new in unarchived:
+            if old in staged_files:
+                staged_files.remove(old)
+            if new not in staged_files:
+                staged_files.append(new)
+
+        # Archive completed projects and tasks
+        archived, archived_link_updates = self.archive_completed(staged_files)
+        result.archived.extend(archived)
+        result.links_updated.extend(archived_link_updates)
+
+        # Update staged_files list with new paths
+        for old, new in archived:
+            if old in staged_files:
+                staged_files.remove(old)
+            if new not in staged_files:
+                staged_files.append(new)
+
+        # Update task group status based on children
+        group_updates = self.update_task_group_status(staged_files)
+        result.group_status_updated.extend(group_updates)
+        staged_files.extend([f for f in group_updates if f not in staged_files])
+
+        # Update project status based on children (active task -> active project)
+        project_updates, project_unarchived = self.update_project_status(staged_files)
+        result.project_status_updated.extend(project_updates)
+        result.unarchived.extend(project_unarchived)
+        staged_files.extend([f for f in project_updates if f not in staged_files])
+
+        # Sync task status to project files
+        synced = self.sync_task_status_to_project(staged_files)
+        result.checkbox_synced.extend(synced)
+
+        # Sort tasks in parent files by status
+        sorted_parents = self.sort_all_parents(staged_files)
+        result.tasks_sorted.extend(sorted_parents)
+
+        # === VALIDATE AFTER SYNC (catch remaining issues) ===
+        for filepath in staged_files:
+            errors = self.validate_file(filepath)
+            if errors:
+                result.errors[filepath] = errors
+
+        return result
+
+    def validate_file(self, filepath: str) -> list[str]:
+        """Run all validation checks on a file."""
+        errors = validate_frontmatter(filepath, self.notes_dir)
+        errors.extend(validate_links(filepath, self.notes_dir))
+
+        # Additional check: project/task-group cannot be marked done if it has incomplete tasks
+        path = Path(filepath)
+        if not path.exists():
+            path = self.notes_dir / filepath
+        if path.exists():
+            meta = get_frontmatter(str(path))
+            note_type = infer_type(str(path), meta)
+            status = meta.get("status") if meta else None
+
+            # Check projects
+            if note_type == "project" and status == "done":
+                project_name = path.stem
+                incomplete = self.get_incomplete_tasks(project_name)
+                if incomplete:
+                    errors.append(
+                        f"Cannot mark project as done. Incomplete tasks: {', '.join(incomplete)}"
+                    )
+
+            # Check task-groups (tasks with children)
+            if note_type == "task" and status in ("done", "dropped"):
+                group_name = path.stem
+                children = self.find_children_files(group_name)
+                if children:  # This is a task-group
+                    incomplete = self.get_incomplete_tasks(group_name)
+                    if incomplete:
+                        errors.append(
+                            f"Cannot mark task-group as {status}. Incomplete tasks: {', '.join(incomplete)}"
+                        )
+
+        return errors
+
+    def update_modified_date(self, filepath: str) -> bool:
+        """Update the modified date in frontmatter. Returns True if changed."""
+        path = Path(filepath)
+        if not path.exists():
+            path = self.notes_dir / filepath
+        if not path.exists():
+            return False
+
+        post = load_note(path)
+        if post is None:
+            return False
+
+        today = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+        if 'modified' in post.metadata:
+            if post['modified'] == today:
+                return False
+            post['modified'] = today
+        else:
+            # Add modified after created, or at end
+            if 'created' in post.metadata:
+                new_metadata = {}
+                for key, val in post.metadata.items():
+                    new_metadata[key] = val
+                    if key == 'created':
+                        new_metadata['modified'] = today
+                post.metadata = new_metadata
+            else:
+                post['modified'] = today
+
+        if not self.dry_run:
+            save_note(path, post)
+        return True
+
+    def unarchive_reactivated(self, staged_files: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+        """Move reactivated tasks/projects from archive back to notes."""
+        unarchived = []
+        updated_parents = []
+
+        for filepath in staged_files:
+            path = Path(filepath)
+
+            # Only process files in archive directory
+            is_in_archive = (
+                filepath.startswith("archive/") or
+                filepath.startswith("archive\\") or
+                str(self.archive_dir) in filepath or
+                (path.is_absolute() and self.archive_dir in path.parents)
+            )
+            if not is_in_archive:
+                continue
+
+            # Resolve the actual file path
+            actual_path = path
+            if not path.is_absolute():
+                actual_path = self.archive_dir / path.name
+
+            meta = get_frontmatter(str(actual_path))
+            if not meta:
+                continue
+
+            if should_unarchive(str(actual_path), meta):
+                new_path = self.notes_dir / path.name
+
+                if not self.dry_run:
+                    # Move file
+                    shutil.move(str(actual_path), new_path)
+
+                    # Update links inside the unarchived file (remove ../ prefix)
+                    self.update_links_in_file(new_path, to_archive=False)
+
+                # Return original filepath for consistency
+                unarchived.append((filepath, str(new_path)))
+
+                if not self.dry_run:
+                    # Update links in parent file
+                    task_filename = path.stem
+                    updated_parents.extend(self.update_links_in_parent(task_filename, to_archive=False))
+
+                    # Update links in children files
+                    updated_parents.extend(self.update_links_in_children(task_filename, to_archive=False))
+
+                    # Unarchive parent project if it's in archive (cascade up)
+                    parent_result = self.unarchive_parent_if_needed(str(new_path))
+                    if parent_result:
+                        unarchived.append(parent_result)
+                        parent_name = get_parent_name(str(new_path))
+                        if parent_name:
+                            updated_parents.extend(self.update_links_in_parent(parent_name, to_archive=False))
+
+        return unarchived, updated_parents
+
+    def archive_completed(self, staged_files: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+        """Move completed projects/tasks to archive."""
+        archived = []
+        updated_parents = []
+
+        for filepath in staged_files:
+            path = Path(filepath)
+
+            # Skip files already in archive directory or templates
+            is_in_archive = (
+                filepath.startswith("archive/") or
+                filepath.startswith("archive\\") or
+                str(self.archive_dir) in filepath
+            )
+            if is_in_archive or "templates" in filepath:
+                continue
+
+            # Skip special files
+            if path.name in ("root.md", "backlog.md"):
+                continue
+
+            # Resolve the actual file path if relative
+            actual_path = path
+            if not path.is_absolute():
+                actual_path = self.notes_dir / path.name
+
+            meta = get_frontmatter(str(actual_path))
+            if not meta:
+                continue
+
+            if should_archive(str(actual_path), meta):
+                new_path = self.archive_dir / path.name
+
+                if not self.dry_run:
+                    self.archive_dir.mkdir(exist_ok=True)
+                    # Move file
+                    shutil.move(str(actual_path), new_path)
+
+                    # Update links inside the archived file (add ../ prefix)
+                    self.update_links_in_file(new_path, to_archive=True)
+
+                # Return original filepath for consistency
+                archived.append((filepath, str(new_path)))
+
+                if not self.dry_run:
+                    # Update links in parent file
+                    task_filename = path.stem
+                    updated_parents.extend(self.update_links_in_parent(task_filename, to_archive=True))
+
+                    # Update links in children files
+                    updated_parents.extend(self.update_links_in_children(task_filename, to_archive=True))
+
+        return archived, updated_parents
+
+    def update_links_in_file(self, filepath: Path, to_archive: bool) -> bool:
+        """Update links inside the file itself when it's archived or unarchived."""
+        content = filepath.read_text()
+        new_content = content
+
+        if to_archive:
+            # First: convert (archive/foo) to (foo) - now siblings in archive
+            pattern1 = r'(\[[^\]]+\]\()archive/([^)]+)(\))'
+            replacement1 = r'\g<1>\g<2>\g<3>'
+            new_content = re.sub(pattern1, replacement1, new_content)
+
+            # Second: add ../ prefix only to links pointing to files in notes/
+            def add_prefix_if_needed(match):
+                prefix = match.group(1)
+                target = match.group(2)
+                suffix = match.group(3)
+
+                if is_external_link(target) or target.startswith('../'):
+                    return match.group(0)
+
+                target_name = target.rstrip('.md')
+                if not target_name.endswith('.md'):
+                    target_file = f"{target_name}.md"
+                else:
+                    target_file = target_name
+                archive_path = self.archive_dir / target_file
+                if archive_path.exists():
+                    return match.group(0)
+
+                return f"{prefix}../{target}{suffix}"
+
+            pattern2 = r'(\[[^\]]+\]\()([^)]+)(\))'
+            new_content = re.sub(pattern2, add_prefix_if_needed, new_content)
+        else:
+            # Remove ../ prefix from relative links
+            pattern = r'(\[[^\]]+\]\()\.\.\/([^)]+)(\))'
+            replacement = r'\g<1>\g<2>\g<3>'
+            new_content = re.sub(pattern, replacement, new_content)
+
+        if new_content != content:
+            if not self.dry_run:
+                filepath.write_text(new_content)
+            return True
+
+        return False
+
+    def update_links_in_parent(self, task_filename: str, to_archive: bool) -> list[str]:
+        """Update links in parent file when task is archived or unarchived."""
+        updated = []
+        parent_name = get_parent_name(f"{task_filename}.md")
+        if not parent_name:
+            return updated
+
+        parent_path = self.find_parent_file(parent_name)
+        if not parent_path:
+            return updated
+
+        parent_content = parent_path.read_text()
+
+        if to_archive:
+            pattern = rf"(\[[^\]]+\]\()({re.escape(task_filename)})(\))"
+            replacement = rf"\g<1>archive/{task_filename}\g<3>"
+        else:
+            pattern = rf"(\[[^\]]+\]\()archive/({re.escape(task_filename)})(\))"
+            replacement = rf"\g<1>{task_filename}\g<3>"
+
+        new_content = re.sub(pattern, replacement, parent_content)
+
+        if new_content != parent_content:
+            if not self.dry_run:
+                parent_path.write_text(new_content)
+            updated.append(str(parent_path))
+
+        return updated
+
+    def update_links_in_children(self, parent_name: str, to_archive: bool) -> list[str]:
+        """Update links to parent in all children files when parent is archived/unarchived."""
+        updated = []
+        children = self.find_children_files(parent_name)
+
+        for child_path in children:
+            # Only process children in archive
+            if str(self.archive_dir) not in str(child_path):
+                continue
+
+            content = child_path.read_text()
+
+            if to_archive:
+                pattern = rf'(\[[^\]]+\]\()\.\./{re.escape(parent_name)}(\))'
+                replacement = rf'\g<1>{parent_name}\g<2>'
+            else:
+                pattern = rf'(\[[^\]]+\]\()(?!\.\./){re.escape(parent_name)}(\))'
+                replacement = rf'\g<1>../{parent_name}\g<2>'
+
+            new_content = re.sub(pattern, replacement, content)
+
+            if new_content != content:
+                if not self.dry_run:
+                    child_path.write_text(new_content)
+                updated.append(str(child_path))
+
+        return updated
+
+    def update_links_to_archived_children(self, parent_path: Path, parent_name: str) -> bool:
+        """Update links in parent file to add archive/ prefix for children still in archive."""
+        content = parent_path.read_text()
+        new_content = content
+
+        children_in_archive = []
+        for child_path in self.archive_dir.glob(f"{parent_name}.*.md"):
+            children_in_archive.append(child_path.stem)
+
+        for child_name in children_in_archive:
+            pattern = rf'(\[[^\]]+\]\()(?!archive/)({re.escape(child_name)})(\))'
+            replacement = rf'\g<1>archive/{child_name}\g<3>'
+            new_content = re.sub(pattern, replacement, new_content)
+
+        if new_content != content:
+            if not self.dry_run:
+                parent_path.write_text(new_content)
+            return True
+
+        return False
+
+    def unarchive_parent_if_needed(self, child_filepath: str) -> tuple[str, str] | None:
+        """Unarchive and reactivate parent project if a child task is unarchived."""
+        parent_name = get_parent_name(child_filepath)
+        if not parent_name:
+            return None
+
+        parent_path = self.archive_dir / f"{parent_name}.md"
+        if not parent_path.exists():
+            return None
+
+        new_path = self.notes_dir / f"{parent_name}.md"
+
+        # Load and update status to active
+        post = load_note(parent_path)
+        if post and post.get('status') == 'done':
+            post['status'] = 'active'
+
+        if not self.dry_run:
+            # Move file and write updated content
+            parent_path.unlink()
+            if post:
+                save_note(new_path, post)
+            else:
+                shutil.copy(parent_path, new_path)
+
+            # Update links inside the parent file
+            self.update_links_in_file(new_path, to_archive=False)
+
+            # Update links to children that remain in archive
+            self.update_links_to_archived_children(new_path, parent_name)
+
+            # Update links in archived children
+            self.update_links_in_children(parent_name, to_archive=False)
+
+            # Recursively unarchive grandparent if needed
+            self.unarchive_parent_if_needed(f"{parent_name}.md")
+
+        return (str(parent_path), str(new_path))
+
+    def handle_renamed_files(self, renamed_files: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
+        """Handle file renames by updating links in parent and children.
+        
+        When parent changes (e.g., p1.task.md -> p2.task.md):
+        1. Remove link from old parent (p1.md)
+        2. Add link to new parent (p2.md)
+        3. Update backlink in renamed file
+        4. Update parent field in frontmatter
+        """
+        updated = []
+        errors = []
+
+        for old_path, new_path in renamed_files:
+            old_name = Path(old_path).stem
+            new_name = Path(new_path).stem
+
+            # Check if parent/group name changed
+            old_parts = old_name.split(".")
+            new_parts = new_name.split(".")
+
+            old_parent = None
+            new_parent = None
+            parent_changed = False
+
+            if len(old_parts) >= 2:
+                old_parent = ".".join(old_parts[:-1])
+            if len(new_parts) >= 2:
+                new_parent = ".".join(new_parts[:-1])
+
+            if old_parent != new_parent:
+                parent_changed = True
+                # Check if new parent file exists
+                if new_parent:
+                    new_parent_file = self.find_file_in_notes(f"{new_parent}.md")
+                    if not new_parent_file:
+                        errors.append(
+                            f"Cannot rename '{old_name}' to '{new_name}': "
+                            f"parent/group '{new_parent}' does not exist. "
+                            f"Create the parent file first."
+                        )
+                        continue
+
+            # Handle parent change
+            if parent_changed and old_parent and new_parent:
+                # 1. Remove link from old parent
+                old_parent_path = self.find_parent_file(old_parent)
+                if old_parent_path:
+                    content = old_parent_path.read_text()
+                    # Match: - [x] [Title](old_name) or - [x] [Title](archive/old_name)
+                    pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(old_name)}\)\n?'
+                    new_content = re.sub(pattern, '', content, flags=re.MULTILINE)
+                    if new_content != content:
+                        if not self.dry_run:
+                            old_parent_path.write_text(new_content)
+                        if str(old_parent_path) not in updated:
+                            updated.append(str(old_parent_path))
+
+                # 2. Add link to new parent
+                new_parent_path = self.find_parent_file(new_parent)
+                if new_parent_path:
+                    # Get task info to create proper link
+                    renamed_file_path = self.notes_dir / new_path
+                    if not renamed_file_path.exists():
+                        renamed_file_path = self.archive_dir / Path(new_path).name
+                    
+                    if renamed_file_path.exists():
+                        meta = get_frontmatter(str(renamed_file_path))
+                        if meta:
+                            from .schema import get_status_symbol
+                            
+                            task_status = meta.get('status', 'todo')
+                            # Get actual title from file
+                            task_title = get_title_from_file(renamed_file_path)
+                            checkbox = get_status_symbol(task_status)
+                            
+                            # Determine if file is in archive
+                            is_archived = 'archive/' in new_path or str(self.archive_dir) in str(renamed_file_path)
+                            link_target = f"archive/{new_name}" if is_archived else new_name
+                            task_entry = f"- {checkbox} [{task_title}]({link_target})"
+                            
+                            content = new_parent_path.read_text()
+                            # Add to Tasks section
+                            if "## Tasks" in content:
+                                lines = content.split("\n")
+                                new_lines = []
+                                in_tasks = False
+                                added = False
+                                
+                                for line in lines:
+                                    new_lines.append(line)
+                                    if line.strip() == "## Tasks":
+                                        in_tasks = True
+                                    elif in_tasks and not added and not line.strip().startswith("<!--"):
+                                        # Add task after section header
+                                        new_lines.append(task_entry)
+                                        added = True
+                                        in_tasks = False
+                                
+                                if not added:
+                                    # Tasks section exists but empty
+                                    new_lines.append(task_entry)
+                                
+                                new_content = "\n".join(new_lines)
+                                if not self.dry_run:
+                                    new_parent_path.write_text(new_content)
+                                if str(new_parent_path) not in updated:
+                                    updated.append(str(new_parent_path))
+
+                # 3. Update backlink in renamed file
+                renamed_file_path = self.notes_dir / new_path
+                if not renamed_file_path.exists():
+                    renamed_file_path = self.archive_dir / Path(new_path).name
+                
+                if renamed_file_path.exists():
+                    content = renamed_file_path.read_text()
+                    
+                    # Get new parent title
+                    new_parent_path = self.find_parent_file(new_parent)
+                    if new_parent_path:
+                        new_parent_title = get_title_from_file(new_parent_path)
+                        
+                        # Update backlink: [< Old Parent](old_parent) -> [< New Parent](new_parent)
+                        # Handle both regular and archive paths
+                        old_backlink_pattern = rf'\[<[^\]]+\]\({re.escape(old_parent)}\)'
+                        old_backlink_archive_pattern = rf'\[<[^\]]+\]\(\.\.\/({re.escape(old_parent)})\)'
+                        
+                        is_in_archive = str(self.archive_dir) in str(renamed_file_path)
+                        if is_in_archive:
+                            new_backlink = f"[< {new_parent_title}](../{new_parent})"
+                        else:
+                            new_backlink = f"[< {new_parent_title}]({new_parent})"
+                        
+                        new_content = re.sub(old_backlink_pattern, new_backlink, content)
+                        new_content = re.sub(old_backlink_archive_pattern, new_backlink, new_content)
+                        
+                        if new_content != content:
+                            if not self.dry_run:
+                                renamed_file_path.write_text(new_content)
+                            if str(renamed_file_path) not in updated:
+                                updated.append(str(renamed_file_path))
+                
+                # 4. Update parent field in frontmatter
+                if not self.dry_run:
+                    if update_field(renamed_file_path, 'parent', new_parent, dry_run=False):
+                        if str(renamed_file_path) not in updated:
+                            updated.append(str(renamed_file_path))
+
+            # Handle simple rename (no parent change) - update links in parent file
+            elif old_name != new_name and new_parent:
+                parent_path = self.find_parent_file(new_parent)
+                if parent_path:
+                    content = parent_path.read_text()
+                    pattern = rf'(\[[^\]]+\]\()(archive/)?{re.escape(old_name)}(\))'
+                    replacement = rf'\g<1>\g<2>{new_name}\g<3>'
+                    new_content = re.sub(pattern, replacement, content)
+
+                    if new_content != content:
+                        if not self.dry_run:
+                            parent_path.write_text(new_content)
+                        if str(parent_path) not in updated:
+                            updated.append(str(parent_path))
+
+            # Update links in children files (for both parent change and simple rename)
+            if old_name != new_name:
+                old_children = self.find_children_files(old_name)
+                for child_path in old_children:
+                    content = child_path.read_text()
+                    pattern = rf'(\[[^\]]+\]\()(\.\.\/)?{re.escape(old_name)}(\))'
+                    replacement = rf'\g<1>\g<2>{new_name}\g<3>'
+                    new_content = re.sub(pattern, replacement, content)
+
+                    if new_content != content:
+                        if not self.dry_run:
+                            child_path.write_text(new_content)
+                        if str(child_path) not in updated:
+                            updated.append(str(child_path))
+                    
+                    # Also update the parent field in frontmatter
+                    if not self.dry_run:
+                        if update_field(child_path, 'parent', new_name, dry_run=False):
+                            if str(child_path) not in updated:
+                                updated.append(str(child_path))
+
+        return updated, errors
+
+    def handle_deleted_files(self, deleted_files: list[str]) -> list[str]:
+        """Remove references to deleted files from their parent files.
+
+        Returns list of parent files that were updated.
+        """
+        updated = []
+
+        for filepath in deleted_files:
+            deleted_name = Path(filepath).stem
+            parent_name = get_parent_name(filepath)
+
+            if not parent_name:
+                continue
+
+            parent_path = self.find_parent_file(parent_name)
+            if not parent_path:
+                continue
+
+            content = parent_path.read_text()
+
+            # Remove task entry line: - [x] [Title](deleted_name) or - [x] [Title](archive/deleted_name)
+            pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(deleted_name)}\)\n?'
+            new_content = re.sub(pattern, '', content, flags=re.MULTILINE)
+
+            if new_content != content:
+                if not self.dry_run:
+                    parent_path.write_text(new_content)
+                if str(parent_path) not in updated:
+                    updated.append(str(parent_path))
+
+        return updated
+
+    def get_child_task_statuses(self, parent_name: str) -> list[str]:
+        """Get all child task statuses for a parent."""
+        statuses = []
+        for child_path in self.find_children_files(parent_name):
+            meta = get_frontmatter(str(child_path))
+            if meta and meta.get("type") == "task":
+                statuses.append(meta.get("status", "todo"))
+        return statuses
+
+    def set_status_in_file(self, filepath: Path, new_status: str) -> bool:
+        """Update status in frontmatter. Returns True if changed."""
+        post = load_note(filepath)
+        if post is None:
+            return False
+
+        current_status = post.get('status')
+        if current_status == new_status:
+            return False
+
+        if 'status' in post.metadata:
+            post['status'] = new_status
+        else:
+            # Add status after type or created
+            new_metadata = {}
+            added = False
+            for key, val in post.metadata.items():
+                new_metadata[key] = val
+                if key in ('type', 'created') and not added:
+                    new_metadata['status'] = new_status
+                    added = True
+            if not added:
+                new_metadata['status'] = new_status
+            post.metadata = new_metadata
+
+        if not self.dry_run:
+            save_note(filepath, post)
+        return True
+
+    def update_task_group_status(self, staged_files: list[str]) -> list[str]:
+        """Update task group status based on children status."""
+        updated = []
+        checked_groups = set()
+
+        for filepath in staged_files:
+            parent_name = get_parent_name(filepath)
+            if not parent_name or parent_name in checked_groups:
+                continue
+            checked_groups.add(parent_name)
+
+            parent_path = self.find_parent_file(parent_name)
+            if not parent_path:
+                continue
+
+            meta = get_frontmatter(str(parent_path))
+            if not meta or meta.get("type") != "task":
+                continue
+
+            child_statuses = self.get_child_task_statuses(parent_name)
+            if not child_statuses:
+                continue
+
+            current_status = meta.get("status", "todo")
+
+            # Derive status from children: blocked > done > active > todo
+            if "blocked" in child_statuses:
+                new_status = "blocked"
+            elif all(s in ("done", "dropped") for s in child_statuses):
+                new_status = "done"
+            elif "active" in child_statuses:
+                new_status = "active"
+            else:
+                new_status = "todo"
+
+            if new_status != current_status and self.set_status_in_file(parent_path, new_status):
+                updated.append(str(parent_path))
+
+        return updated
+
+    def update_project_status(self, staged_files: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
+        """Update project status based on children task status.
+
+        Rules:
+        - Any child task active → project becomes active (unarchive if needed)
+        - No active tasks AND project is active → project becomes planning
+        - done and paused are user-controlled (never auto-set)
+        """
+        updated = []
+        unarchived = []
+        checked_projects = set()
+
+        for filepath in staged_files:
+            # Get root project name (first part of dot notation)
+            parts = Path(filepath).stem.split(".")
+            if len(parts) < 2:
+                continue
+
+            project_name = parts[0]
+            if project_name in checked_projects:
+                continue
+            checked_projects.add(project_name)
+
+            project_path = self.find_file_in_notes(f"{project_name}.md")
+            if not project_path:
+                continue
+
+            meta = get_frontmatter(str(project_path))
+            if not meta or infer_type(str(project_path), meta) != "project":
+                continue
+
+            current_status = meta.get("status", "planning")
+
+            # Never auto-modify done or paused
+            if current_status in ("done", "paused"):
+                continue
+
+            child_statuses = self.get_child_task_statuses(project_name)
+            has_active = "active" in child_statuses
+
+            if has_active and current_status != "active":
+                new_status = "active"
+            elif not has_active and current_status == "active":
+                new_status = "planning"
+            else:
+                continue
+
+            # Handle unarchiving if needed
+            is_in_archive = str(self.archive_dir) in str(project_path)
+            if is_in_archive and new_status == "active":
+                new_path = self.notes_dir / f"{project_name}.md"
+                if not self.dry_run:
+                    self.set_status_in_file(project_path, new_status)
+                    shutil.move(str(project_path), new_path)
+                    self.update_links_in_file(new_path, to_archive=False)
+                    self.update_links_to_archived_children(new_path, project_name)
+                unarchived.append((str(project_path), str(new_path)))
+                updated.append(str(new_path))
+            elif self.set_status_in_file(project_path, new_status):
+                updated.append(str(project_path))
+
+        return updated, unarchived
+
+    def sync_task_status_to_project(self, staged_files: list[str]) -> list[str]:
+        """Update task checkboxes in parent files based on task status.
+
+        Batches updates by parent to avoid reading the same file multiple times.
+        """
+        updated_projects = []
+
+        # Group tasks by parent for batched processing
+        tasks_by_parent: dict[str, list[tuple[str, str]]] = {}  # parent_name -> [(task_stem, checkbox)]
+
+        for filepath in staged_files:
+            parent_name = get_parent_name(filepath)
+            if not parent_name:
+                continue
+
+            # Resolve filepath
+            path = Path(filepath)
+            if not path.exists():
+                path = self.notes_dir / filepath
+                if not path.exists():
+                    path = self.archive_dir / Path(filepath).name
+
+            meta = get_frontmatter(str(path))
+            if not meta or meta.get("type") != "task":
+                continue
+
+            task_status = meta.get("status", "todo")
+            checkbox = STATUS_SYMBOLS.get(task_status, "[ ]")
+            task_stem = Path(filepath).stem
+
+            tasks_by_parent.setdefault(parent_name, []).append((task_stem, checkbox))
+
+        # Process each parent file once
+        for parent_name, tasks in tasks_by_parent.items():
+            parent_path = self.find_parent_file(parent_name)
+            if not parent_path:
+                continue
+
+            content = parent_path.read_text()
+            new_content = content
+
+            # Apply all task updates to this parent
+            for task_stem, checkbox in tasks:
+                pattern = rf"(- )\[[x .o~]\]( \[[^\]]+\]\()(archive/)?{re.escape(task_stem)}(\))"
+                new_content = re.sub(
+                    pattern,
+                    rf"\g<1>{checkbox}\g<2>\g<3>{task_stem}\g<4>",
+                    new_content,
+                )
+
+            if new_content != content:
+                if not self.dry_run:
+                    parent_path.write_text(new_content)
+                updated_projects.append(str(parent_path))
+
+        return updated_projects
+
+    def sort_tasks_in_parent(self, parent_path: Path) -> bool:
+        """Sort task entries in a parent file by status."""
+        content = parent_path.read_text()
+
+        task_pattern = re.compile(
+            r'^(- \[([x .o~])\] \[[^\]]+\]\((?:archive/)?([^\)]+)\))$',
+            re.MULTILINE
+        )
+
+        matches = list(task_pattern.finditer(content))
+        if len(matches) < 2:
+            return False
+
+        status_order = {'o': 0, '.': 1, ' ': 2, 'x': 3, '~': 4}
+
+        tasks = []
+        for match in matches:
+            line = match.group(1)
+            checkbox = match.group(2)
+            task_name = match.group(3)
+            tasks.append({
+                'line': line,
+                'checkbox': checkbox,
+                'name': task_name,
+                'start': match.start(),
+                'end': match.end(),
+                'order': status_order.get(checkbox, 2)
+            })
+
+        separator = "---"
+        has_active = any(t['order'] < 3 for t in tasks)
+        has_done = any(t['order'] >= 3 for t in tasks)
+
+        first_task_start = tasks[0]['start']
+        last_task_end = tasks[-1]['end']
+
+        task_block = content[first_task_start:last_task_end]
+        has_separator = separator in task_block
+
+        is_sorted = all(
+            tasks[i]['order'] <= tasks[i + 1]['order']
+            for i in range(len(tasks) - 1)
+        )
+
+        needs_separator = has_active and has_done and not has_separator
+
+        if is_sorted and not needs_separator:
+            return False
+
+        sorted_tasks = sorted(tasks, key=lambda t: (t['order'], t['name']))
+
+        new_lines = []
+        for i, task in enumerate(sorted_tasks):
+            if (needs_separator and
+                i > 0 and sorted_tasks[i - 1]['order'] < 3 and task['order'] >= 3):
+                new_lines.append(separator)
+            new_lines.append(task['line'])
+
+        new_content = content[:first_task_start] + "\n".join(new_lines) + content[last_task_end:]
+
+        if new_content != content:
+            if not self.dry_run:
+                parent_path.write_text(new_content)
+            return True
+
+        return False
+
+    def sort_all_parents(self, staged_files: list[str]) -> list[str]:
+        """Sort tasks in all parent files of staged files."""
+        sorted_parents = []
+        checked = set()
+
+        for filepath in staged_files:
+            parent_name = get_parent_name(filepath)
+            if parent_name and parent_name not in checked:
+                checked.add(parent_name)
+                parent_path = self.find_parent_file(parent_name)
+                if parent_path:
+                    if self.sort_tasks_in_parent(parent_path):
+                        sorted_parents.append(str(parent_path))
+
+        return sorted_parents

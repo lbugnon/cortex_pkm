@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Pre-commit hook for cortex notes.
+
+This hook validates and maintains the knowledge structure:
+1. Validates frontmatter against schema
+2. Updates modified dates
+3. Archives/unarchives items based on status
+4. Syncs task checkboxes and status to parents
+5. Sorts tasks by status
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+# Add repo root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from cor.maintenance import MaintenanceRunner
+from cor.config import get_vault_path
+
+
+def get_staged_md_files() -> tuple[list[str], list[str]]:
+    """Get list of staged .md files in current directory (notes root).
+
+    Returns:
+        Tuple of (modified_files, deleted_files)
+    """
+    # Get added/modified files
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+        capture_output=True,
+        text=True,
+    )
+    modified = [f for f in result.stdout.strip().split("\n")
+                if f.endswith(".md") and not f.startswith("templates/") and f]
+
+    # Get deleted files
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=D"],
+        capture_output=True,
+        text=True,
+    )
+    deleted = [f for f in result.stdout.strip().split("\n")
+               if f.endswith(".md") and not f.startswith("templates/") and f]
+
+    return modified, deleted
+
+
+def get_renamed_files() -> list[tuple[str, str]]:
+    """Get list of renamed .md files.
+
+    Returns list of tuples: (old_path, new_path)
+    """
+    result = subprocess.run(
+        ["git", "diff", "--cached", "-M", "--name-status"],
+        capture_output=True,
+        text=True,
+    )
+    renamed = []
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("\t")
+        # R100 means 100% rename (no content change), R090 means 90% similar, etc.
+        if parts[0].startswith("R") and len(parts) >= 3:
+            old_path, new_path = parts[1], parts[2]
+            if old_path.endswith(".md") and not old_path.startswith("templates/"):
+                renamed.append((old_path, new_path))
+    return renamed
+
+
+def main():
+    staged_files, deleted_files = get_staged_md_files()
+    renamed_files = get_renamed_files()
+    print("staged files", staged_files)
+    print("deleted files", deleted_files)
+    print("renamed files", renamed_files)
+
+    if not staged_files and not renamed_files and not deleted_files:
+        sys.exit(0)
+
+    notes_dir = get_vault_path()
+
+    # Run maintenance sync (not dry run - actually apply changes)
+    runner = MaintenanceRunner(notes_dir, dry_run=False)
+    result = runner.sync(staged_files, renamed_files, deleted_files)
+    # Check for validation errors
+    if result.errors:
+        print("Validation errors found:", file=sys.stderr)
+        for filepath, errors in result.errors.items():
+            print(f"\n  {filepath}:", file=sys.stderr)
+            for error in errors:
+                print(f"    - {error}", file=sys.stderr)
+        print("\nCommit aborted. Fix errors and try again.", file=sys.stderr)
+        sys.exit(1)
+
+    # Track files to stage at the end
+    files_to_add: set[str] = set()
+    files_to_remove: set[str] = set()
+
+    # Report and track changes
+    if result.modified_dates_updated:
+        print(f"Updated modified date in: {', '.join(result.modified_dates_updated)}")
+        files_to_add.update(result.modified_dates_updated)
+
+    if result.unarchived:
+        for old, new in result.unarchived:
+            print(f"Unarchived: {old} -> {new}")
+            files_to_remove.add(old)
+            files_to_add.discard(old)
+            files_to_add.add(new)
+
+    if result.archived:
+        for old, new in result.archived:
+            print(f"Archived: {old} -> {new}")
+            files_to_remove.add(old)
+            files_to_add.discard(old)
+            files_to_add.add(new)
+
+    if result.links_updated:
+        print(f"Updated links in: {', '.join(result.links_updated)}")
+        files_to_add.update(result.links_updated)
+
+    if result.group_status_updated:
+        print(f"Updated task group status in: {', '.join(result.group_status_updated)}")
+        files_to_add.update(result.group_status_updated)
+
+    if result.project_status_updated:
+        print(f"Updated project status in: {', '.join(result.project_status_updated)}")
+        files_to_add.update(result.project_status_updated)
+
+    if result.checkbox_synced:
+        print(f"Synced task status in: {', '.join(result.checkbox_synced)}")
+        files_to_add.update(result.checkbox_synced)
+
+    if result.tasks_sorted:
+        print(f"Sorted tasks in: {', '.join(result.tasks_sorted)}")
+        files_to_add.update(result.tasks_sorted)
+
+    if result.deleted_links_removed:
+        print(f"Removed deleted task links in: {', '.join(result.deleted_links_removed)}")
+        files_to_add.update(result.deleted_links_removed)
+
+    # Stage all changes at the end
+    for filepath in files_to_remove:
+        subprocess.run(["git", "rm", "--cached", filepath], check=True)
+    for filepath in files_to_add:
+        subprocess.run(["git", "add", filepath], check=True)
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

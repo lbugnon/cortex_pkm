@@ -1,0 +1,162 @@
+"""Shell completion functions for Cortex CLI."""
+
+from click.shell_completion import CompletionItem
+
+from .schema import VALID_TASK_STATUS
+from .utils import (
+    get_notes_dir,
+    get_projects,
+    get_task_groups,
+    get_project_tasks,
+    get_all_notes,
+)
+
+
+def complete_name(ctx, param, incomplete: str) -> list:
+    """Shell completion for task/note names with project prefix."""
+    # Get note_type from context
+    note_type = ctx.params.get("note_type", "")
+
+    # Only suggest project prefixes for task/note types
+    if note_type not in ("task", "note"):
+        return []
+
+    parts = incomplete.split(".")
+
+    # No dot yet: suggest parent prefixes
+    if len(parts) == 1:
+        # For tasks: only projects (no dots in name)
+        # For notes: all notes (projects + existing notes) can be parents
+        if note_type == "task":
+            parents = get_projects()
+            help_text = "Tasks under {p}"
+        else:
+            parents = get_all_notes()
+            help_text = "Notes under {p}"
+
+        return [
+            CompletionItem(f"{p}.", help=help_text.format(p=p))
+            for p in parents
+            if not incomplete or p.startswith(incomplete)
+        ]
+
+    # One dot (project.): suggest task groups if any exist
+    if len(parts) == 2:
+        project = parts[0]
+        group_prefix = parts[1]
+        groups = get_task_groups(project)
+        if groups:
+            return [
+                CompletionItem(f"{project}.{g}.", help=f"Tasks in {g}")
+                for g in groups
+                if not group_prefix or g.startswith(group_prefix)
+            ]
+
+    return []
+
+
+def complete_project(ctx, param, incomplete: str) -> list:
+    """Shell completion for project names."""
+    projects = get_projects()
+    return [
+        CompletionItem(p, help=f"Project {p}")
+        for p in projects
+        if not incomplete or p.startswith(incomplete)
+    ]
+
+
+def complete_existing_name(ctx, param, incomplete: str) -> list:
+    """Shell completion for existing file names (projects and tasks)."""
+    notes_dir = get_notes_dir()
+    if not notes_dir.exists():
+        return []
+
+    completions = []
+    archive_dir = notes_dir / "archive"
+
+    # Check if -a/--archived flag is set
+    include_archived = ctx.params.get("archived", False)
+
+    # Check if incomplete starts with "archive/"
+    is_archive_path = incomplete.startswith("archive/")
+    search_stem = incomplete[8:] if is_archive_path else incomplete
+
+    # Get all note files from main directory
+    if not is_archive_path:
+        for path in notes_dir.glob("*.md"):
+            if path.stem not in ("root", "backlog") and not path.name.startswith("."):
+                if not search_stem or path.stem.startswith(search_stem):
+                    completions.append(CompletionItem(path.stem))
+
+    # Also include archived files only if -a flag is set or user typed "archive/"
+    if (include_archived or is_archive_path) and archive_dir.exists():
+        for path in archive_dir.glob("*.md"):
+            if not search_stem or path.stem.startswith(search_stem):
+                completions.append(CompletionItem(f"archive/{path.stem}", help="(archived)"))
+
+    return completions
+
+
+def complete_group_project(ctx, param, incomplete: str) -> list:
+    """Shell completion for group command: project.groupname format."""
+    parts = incomplete.split(".")
+
+    if len(parts) == 1:
+        # No dot yet: suggest projects
+        return [
+            CompletionItem(f"{p}.", help=f"Create group under {p}")
+            for p in get_projects()
+            if not incomplete or p.startswith(incomplete)
+        ]
+
+    # After dot: user is typing group name, no completion
+    return []
+
+
+def complete_project_tasks(ctx, param, incomplete: str) -> list:
+    """Shell completion for task names belonging to the project from group argument."""
+    # Get the group argument (project.groupname)
+    group_arg = ctx.params.get("group", "")
+    if not group_arg or "." not in group_arg:
+        return []
+
+    project = group_arg.split(".")[0]
+    tasks = get_project_tasks(project)
+
+    return [
+        CompletionItem(t, help=f"{project}.{t}.md")
+        for t in tasks
+        if not incomplete or t.startswith(incomplete)
+    ]
+
+
+def complete_task_name(ctx, param, incomplete: str) -> list:
+    """Shell completion for task names (type: task in frontmatter)."""
+    from .parser import parse_note
+
+    notes_dir = get_notes_dir()
+    if not notes_dir.exists():
+        return []
+
+    completions = []
+
+    # Check notes dir
+    for path in notes_dir.glob("*.md"):
+        if path.stem in ("root", "backlog"):
+            continue
+        if incomplete and not path.stem.startswith(incomplete):
+            continue
+        note = parse_note(path)
+        if note and note.note_type == "task":
+            completions.append(CompletionItem(path.stem))
+
+    return completions
+
+
+def complete_task_status(ctx, param, incomplete: str) -> list:
+    """Shell completion for task status values."""
+    return [
+        CompletionItem(s)
+        for s in sorted(VALID_TASK_STATUS)
+        if not incomplete or s.startswith(incomplete)
+    ]
