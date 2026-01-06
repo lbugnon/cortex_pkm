@@ -19,16 +19,18 @@ from ..utils import (
 
 from ..completions import complete_project
 
-@click.command()
+@click.command(short_help="Interactive backlog processing")
 @require_init
 def process():
     """Interactive prompt to file backlog items into projects.
 
+    \b
     Reads backlog.md, shows each item, and prompts to:
     - Move to a project as a task
     - Keep in backlog
     - Delete
 
+    \b
     Items are processed one by one with keyboard shortcuts.
     """
     notes_dir = get_notes_dir()
@@ -223,7 +225,7 @@ def process():
     log_info(click.style("\nBacklog updated.", fg="green"))
 
 
-@click.command()
+@click.command(short_help="LLM suggestions to refine a project")
 @click.argument("project", shell_complete=complete_project)
 @click.option("--explain", "-e", is_flag=True, help="Show prompt and raw response for debugging")
 @click.option("--model", "-m", default="qwen2.5:0.5b", help="Ollama model to use")
@@ -234,9 +236,10 @@ def refine(project: str, explain: bool, model: str):
     Uses local Ollama to analyze a project and suggest improvements.
     Requires Ollama running locally (ollama serve).
 
+    \b
     Examples:
-        cor refine my-project        # Analyze project
-        cor refine my-project -e     # Show prompt/response for debugging
+      cor refine my-project        # Analyze project
+      cor refine my-project -e     # Show prompt/response for debugging
     """
     from ..llm import refine_project
 

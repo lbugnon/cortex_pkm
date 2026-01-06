@@ -19,23 +19,27 @@ from ..utils import (
 )
 
 
-@click.command()
+@click.command(short_help="Rename projects/tasks; supports parent shortcuts")
 @click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in autocomplete")
 @click.argument("old_name", shell_complete=complete_existing_name)
 @click.argument("new_name", shell_complete=complete_new_parent)
 @click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @require_init
 def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
-    """Rename a project or task with all dependencies.
+    """Rename projects/tasks and update all related links.
 
-    Renames the file and all children, updates all links.
-    Use -a to include archived files in autocomplete.
+    \b
+    Shortcuts for tasks (keeps the leaf name):
+      cor rename p1.task1 p2           -> p2.task1
+      cor rename p1.task1 p2.group     -> p2.group.task1
+      cor rename p1.g1.task p2         -> p2.task
 
-    Examples:
-        cor rename cortex-v0-1 cortex-v1           # rename project
-        cor rename cortex-v0-1.task cortex-v1.task # rename task
-        cor rename old-project new-project --dry-run  # preview changes
-        cor rename -a old-project new-project      # rename archived project
+    \b
+    Notes:
+    - Creates the target group if it does not exist.
+    - Updates parent/backlinks and all file references.
+    - Use -a to include archived files.
+    - Use --dry-run to preview changes.
     """
     notes_dir = get_notes_dir()
 
@@ -374,21 +378,24 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     log_info(click.style("\nDone!", fg="green"))
 
 
-@click.command()
+@click.command(short_help="Create a group and move tasks under it")
 @click.argument("group", shell_complete=complete_group_project)
 @click.argument("tasks", nargs=-1, shell_complete=complete_project_tasks)
 @click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @require_init
 def group(group: str, tasks: tuple, dry_run: bool):
-    """Group existing tasks under a new task group.
+    """Group existing tasks under a new or existing group.
 
-    Creates a new group file and moves tasks under it.
-    Tasks are inferred to belong to the same project as the group.
-
+    \b
     Examples:
-        cor group myproject.refactor task1 task2   # group task1, task2 under refactor
-        cor group myproject.v2 feature1 feature2   # group features under v2
-        cor group myproject.cleanup old-task --dry-run  # preview changes
+      cor group myproj.refactor task1 task2
+      cor group myproj.v2 feature1 feature2
+
+    \b
+    Notes:
+    - Creates the group file if it does not exist.
+    - Updates parent/backlinks and links accordingly.
+    - Use --dry-run to preview changes.
     """
     notes_dir = get_notes_dir()
 

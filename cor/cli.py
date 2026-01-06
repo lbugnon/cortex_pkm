@@ -34,7 +34,10 @@ from .utils import (
 HOOKS_DIR = Path(__file__).parent / "hooks"
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(context_settings={
+    "help_option_names": ["-h", "--help"],
+    "max_content_width": 100,
+})
 @click.version_option(__version__, prog_name="cor")
 @click.option(
     "--verbose", "-v",

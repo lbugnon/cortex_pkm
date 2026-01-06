@@ -199,13 +199,14 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
     return True
 
 
-@click.command()
+@click.command(short_help="Prioritized daily view of tasks")
 @click.option("--limit", "-l", default=3, help="Max items per section (default: 3)")
 @click.option("--all", "-a", "show_all", is_flag=True, help="Show all items (no limit)")
 @require_init
 def daily(limit: int, show_all: bool):
     """Show what needs attention today.
 
+    \b
     Prioritized daily view:
     - Overdue items (fix first)
     - Stale waiting items (follow up)
@@ -367,16 +368,18 @@ def _get_project_last_activity(project_name: str, all_notes: list) -> datetime |
     return most_recent
 
 
-@click.command()
+@click.command(short_help="List projects with status and activity")
 @click.option("--all", "-a", "show_all", is_flag=True, help="Include archived/done projects")
 @require_init
 def projects(show_all: bool):
     """List active projects with status and age.
 
-    Shows all non-done projects sorted by last activity (most recent task/note modification).
-    Color-coded by status: planning (blue), active (green), paused (yellow).
-    Stale projects (>14 days untouched) are highlighted in red.
-    Use -a to include done/archived projects.
+    \b
+    Details:
+    - Sorted by last activity (most recent task/note update)
+    - Color-coded: planning (blue), active (green), paused (yellow)
+    - Stale projects (>14 days) highlighted in red
+    - Use -a to include done/archived projects
     """
     notes_dir = get_notes_dir()
     root_lines: list[str] = []
@@ -674,13 +677,17 @@ def weekly(weeks: int, projects: tuple):
         _update_root_section(notes_dir, "Weekly", "\n".join(capture_lines))
 
 
-@click.command()
+@click.command(short_help="Show a project's task tree")
 @click.argument("project", shell_complete=complete_project)
 @require_init
 def tree(project: str):
     """Show task tree for a project.
 
-    Displays tasks in a tree view with [x] or [ ] for done/not done.
+    Displays tasks in a tree view with [x] or [ ] indicating status.
+
+    \b
+    Example:
+      cor tree myproject
     """
     notes_dir = get_notes_dir()
 
@@ -733,17 +740,19 @@ def tree(project: str):
         )
 
 
-@click.command()
+@click.command(short_help="Weekly review summary and insights")
 @click.option("--weeks", "-w", default=1, help="Number of weeks to look back (default: 1)")
 @require_init
 def review(weeks: int):
     """Weekly review assistant.
 
+    \b
     Summarizes:
     - What moved (status changes, completed items)
     - What's stale (needs attention)
     - What's upcoming (due dates, priorities)
 
+    \b
     Use this for weekly planning and reflection.
     """
     notes_dir = get_notes_dir()
