@@ -17,6 +17,7 @@ from ..utils import (
     log_debug,
 )
 
+from ..completions import complete_project
 
 @click.command()
 @require_init
