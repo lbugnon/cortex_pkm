@@ -160,3 +160,34 @@ def complete_task_status(ctx, param, incomplete: str) -> list:
         for s in sorted(VALID_TASK_STATUS)
         if not incomplete or s.startswith(incomplete)
     ]
+
+
+def complete_new_parent(ctx, param, incomplete: str) -> list:
+    """Completion for target parent in rename: suggest projects and existing groups.
+
+    - If typing a project: suggest projects
+    - If typing project.: suggest existing groups for that project
+    """
+    projects = get_projects()
+    parts = incomplete.split(".")
+
+    # No dot yet: suggest projects
+    if len(parts) == 1:
+        return [
+            CompletionItem(p, help=f"Project {p}")
+            for p in projects
+            if not incomplete or p.startswith(incomplete)
+        ]
+
+    # After dot: suggest groups under the given project
+    project = parts[0]
+    group_prefix = parts[1] if len(parts) > 1 else ""
+    if project in projects:
+        groups = get_task_groups(project)
+        return [
+            CompletionItem(f"{project}.{g}", help=f"Group {g} in {project}")
+            for g in groups
+            if not group_prefix or g.startswith(group_prefix)
+        ]
+
+    return []
