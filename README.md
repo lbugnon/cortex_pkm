@@ -230,16 +230,79 @@ cor move p1.experiments p2.experiments       # Move group to different project
 cor rename old-project new-project --dry-run # Preview changes
 ```
 
-## Tab Completion
+## Shell Setup
 
-Tab completion is installed automatically via `cor hooks install`:
+### Installation
+
+Run once to install git hooks and enable shell completion:
 
 ```bash
-cor hooks install  # Sets up git hooks + shell completion
-conda activate env  # Reactivate to enable completion
+cor hooks install
 ```
 
-Then use: `cor new task <TAB>` → shows all projects
+This installs:
+- Git pre-commit hook (auto-updates modified dates, archives completed items, validates consistency)
+- Shell completion script to your conda environment (if using conda)
+
+### Zsh Configuration
+
+**Important:** Do NOT manually run `compinit` after `cor hooks install`. The completion script handles initialization automatically.
+
+Add to your `~/.zshrc` to enable Tab cycling through suggestions:
+
+```zsh
+# Enable Tab to cycle through completion matches (recommended)
+bindkey '^I' menu-complete
+bindkey '\e[Z]' reverse-menu-complete  # Shift-Tab for reverse
+
+# Alternative: arrow-key selection menu (optional)
+# zmodload zsh/complist
+# zstyle ':completion:*:*:cor:*' menu select
+```
+
+Then reactivate your environment:
+```zsh
+conda deactivate
+conda activate <your-env-name>
+```
+
+**Test it:**
+```zsh
+cor edit diffusion<TAB>           # Shows matching files
+<TAB> again                        # Cycles to next match
+```
+
+### Bash Configuration
+
+Bash completion is automatically enabled. Add to your `~/.bashrc` for menu-style cycling:
+
+```bash
+# Show all completions on first Tab, cycle on subsequent Tabs
+bind 'set show-all-if-ambiguous on'
+bind 'TAB:menu-complete'
+bind '"\e[Z": reverse-menu-complete'  # Shift-Tab for reverse
+```
+
+Then reload:
+```bash
+source ~/.bashrc
+```
+
+**Test it:**
+```bash
+cor edit diffusion<TAB>           # Shows matching files
+<TAB> again                        # Cycles to next match
+```
+
+### Tab Completion Examples
+
+Once set up:
+
+```bash
+cor new task my-<TAB>              # Completes project names
+cor edit dif<TAB>                  # Fuzzy matches + cycles
+cor mark impl <TAB>                # Shows task status options
+```
 
 ## Directory Structure
 

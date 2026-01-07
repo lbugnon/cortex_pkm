@@ -1,5 +1,7 @@
 """Shell completion functions for Cortex CLI."""
 
+import os
+
 from click.shell_completion import CompletionItem
 
 from .schema import VALID_TASK_STATUS
@@ -109,8 +111,9 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
         if fuzzy_results:
             top_score = fuzzy_results[0][2]
             fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
-            # If multiple results tie at 100%, pick the shortest to enable immediate TAB
-            if top_score == 100:
+            # Collapse 100%-score ties to shortest unless disabled (default disabled)
+            collapse_100 = os.environ.get("COR_COMPLETE_COLLAPSE_100", "0").lower() not in {"0", "false", "no"}
+            if collapse_100 and top_score == 100:
                 top_ties = [r for r in fuzzy_results if r[2] == top_score]
                 if len(top_ties) > 1:
                     fuzzy_results = [fuzzy_results[0]]
@@ -196,8 +199,9 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
     if fuzzy_results:
         top_score = fuzzy_results[0][2]
         fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
-        # If multiple results tie at 100%, pick the shortest to enable immediate TAB
-        if top_score == 100:
+        # Collapse 100%-score ties to shortest unless disabled (default disabled)
+        collapse_100 = os.environ.get("COR_COMPLETE_COLLAPSE_100", "0").lower() not in {"0", "false", "no"}
+        if collapse_100 and top_score == 100:
             top_ties = [r for r in fuzzy_results if r[2] == top_score]
             if len(top_ties) > 1:
                 fuzzy_results = [fuzzy_results[0]]
