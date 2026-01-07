@@ -12,10 +12,9 @@ import click
 import frontmatter
 
 from . import __version__
-
 from .commands import daily, projects, weekly, tree, review, rename, group, process
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
-from .config import set_vault_path, load_config, CONFIG_FILE, set_verbosity, get_verbosity
+from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity
 from .maintenance import MaintenanceRunner
 from .parser import parse_note
 from .schema import STATUS_SYMBOLS, VALID_TASK_STATUS, DATE_TIME
@@ -35,7 +34,10 @@ from .utils import (
 HOOKS_DIR = Path(__file__).parent / "hooks"
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(context_settings={
+    "help_option_names": ["-h", "--help"],
+    "max_content_width": 100,
+})
 @click.version_option(__version__, prog_name="cor")
 @click.option(
     "--verbose", "-v",
@@ -56,16 +58,6 @@ def cli(ctx, verbose: int):
         new_level = min(current_level + verbose, 3)
         set_verbosity(new_level)
 
-# Register commands from modules
-cli.add_command(daily)
-cli.add_command(projects)
-cli.add_command(weekly)
-cli.add_command(tree)
-cli.add_command(review)
-cli.add_command(rename)
-cli.add_command(rename, name="move")  # Alias for rename
-cli.add_command(group)
-cli.add_command(process)
 
 
 @cli.command()
@@ -368,7 +360,7 @@ def config(key: str | None, value: str | None):
                 raise click.ClickException(f"Path is not a directory: {path}")
             set_vault_path(path)
             click.echo(f"Vault path set to: {path}")
-            click.echo(f"Config saved to: {CONFIG_FILE}")
+            click.echo(f"Config saved to: {config_file()}")
 
 
 @cli.command()
@@ -536,41 +528,74 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
 
 
 @cli.command()
-@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Search in archive folder")
+@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in search")
 @click.argument("name", shell_complete=complete_existing_name)
 @require_init
 def edit(archived: bool, name: str):
     """Open a file in your editor.
 
-    Supports tab completion for all vault files.
-    Use -a to search archived files.
+    Supports fuzzy matching - type partial names and select from matches.
+    Use -a to include archived files in search.
 
     \b
     Examples:
-      cor edit my-project
-      cor edit my-project.implement-feature
-      cor edit -a old-project
+      cor edit my-proj          # Fuzzy matches 'my-project'
+      cor edit foundation       # Interactive picker if multiple matches
+      cor edit -a old-project   # Include archived files
     """
-    notes_dir = get_notes_dir()
+    from .fuzzy import resolve_file_fuzzy, get_file_path
 
-    # Handle "archive/" prefix if present
+    # Handle "archive/" prefix if present (from tab completion)
     if name.startswith("archive/"):
-        file_path = notes_dir / name[8:] + ".md"
-        file_path = notes_dir / "archive" / f"{name[8:]}.md"
-    else:
-        # Check main notes dir first
-        file_path = notes_dir / f"{name}.md"
+        name = name[8:]
+        archived = True
 
-        # Check archive if not found
-        if not file_path.exists():
-            archive_path = notes_dir / "archive" / f"{name}.md"
-            if archive_path.exists():
-                file_path = archive_path
+    result = resolve_file_fuzzy(name, include_archived=archived)
 
-    if not file_path.exists():
-        raise click.ClickException(f"File not found: {name}.md")
+    if result is None:
+        return  # User cancelled
+
+    stem, is_archived = result
+    file_path = get_file_path(stem, is_archived)
 
     open_in_editor(file_path)
+
+
+@cli.command(name="delete")
+@click.option("--archived", "-a", is_flag=True, help="Include archived files in search")
+@click.argument("name", shell_complete=complete_existing_name)
+@require_init
+def delete(archived: bool, name: str):
+    """Delete a note quickly and update references.
+
+    Supports fuzzy matching for file names.
+
+    \b
+    Examples:
+        cor delete my-proj                  # Fuzzy matches 'my-project'
+        cor delete -a old-project           # Include archived files
+    """
+    from .fuzzy import resolve_file_fuzzy, get_file_path
+
+    notes_dir = get_notes_dir()
+
+    # Handle "archive/" prefix if present (from tab completion)
+    if name.startswith("archive/"):
+        name = name[8:]
+        archived = True
+
+    result = resolve_file_fuzzy(name, include_archived=archived)
+
+    if result is None:
+        return  # User cancelled
+
+    stem, is_archived = result
+    file_path = get_file_path(stem, is_archived)
+
+    file_path.unlink()
+    runner = MaintenanceRunner(notes_dir, dry_run=False)
+    runner.sync([], deleted=[str(file_path)])
+    click.echo(click.style(f"Deleted {stem}.md", fg="red"))
 
 
 @cli.command()
@@ -685,6 +710,8 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
 def mark(name: str, status: str):
     """Update task status.
 
+    Supports fuzzy matching for task names.
+
     \b
     Status values:
       todo       Ready to start
@@ -696,15 +723,21 @@ def mark(name: str, status: str):
 
     \b
     Examples:
-      cor mark my-project.implement-api active
+      cor mark impl active          # Fuzzy matches 'implement-api'
       cor mark my-project.research done
     """
+    from .fuzzy import resolve_file_fuzzy, get_file_path
+
     notes_dir = get_notes_dir()
 
-    file_path = notes_dir / f"{name}.md"
+    # Use fuzzy matching (only active files, not archived)
+    result = resolve_file_fuzzy(name, include_archived=False)
 
-    if not file_path.exists():
-        raise click.ClickException(f"File not found: {name}.md")
+    if result is None:
+        return  # User cancelled
+
+    stem, _ = result
+    file_path = notes_dir / f"{stem}.md"
 
     # Validate it's a task
     note = parse_note(file_path)
@@ -714,7 +747,7 @@ def mark(name: str, status: str):
 
     if note.note_type != "task":
         raise click.ClickException(
-            f"'{name}' is a {note.note_type}, not a task. "
+            f"'{stem}' is a {note.note_type}, not a task. "
             "This command only works with tasks."
         )
 
@@ -822,9 +855,9 @@ def hooks_install():
         activate_dir.mkdir(parents=True, exist_ok=True)
 
         completion_script = activate_dir / "cor-completion.sh"
-        # Custom zsh completion that doesn't add space after partial completions
+        # Cortex shell completion for zsh and bash
         completion_script.write_text('''\
-# Cortex shell completion
+# Cortex shell completion (zsh and bash)
 if [ -n "$ZSH_VERSION" ]; then
     _cor_completion() {
         local -a completions completions_partial
@@ -833,8 +866,15 @@ if [ -n "$ZSH_VERSION" ]; then
 
         response=("${(@f)$(env COMP_WORDS="${words[*]}" COMP_CWORD=$((CURRENT-1)) _COR_COMPLETE=zsh_complete cor)}")
 
-        for type key descr in ${response}; do
-            if [[ "$type" == "plain" ]]; then
+        # click zsh completion returns triples: type, value, help per item
+        local i=1
+        local rlen=${#response}
+        while (( i <= rlen )); do
+            local type=${response[i]}
+            local key=${response[i+1]:-}
+            local descr=${response[i+2]:-}
+            (( i += 3 ))
+            if [[ "$type" == "plain" && -n "$key" ]]; then
                 if [[ "$key" == *. ]]; then
                     # Partial completion (ends with .) - no trailing space
                     completions_partial+=("$key")
@@ -844,11 +884,17 @@ if [ -n "$ZSH_VERSION" ]; then
             fi
         done
 
-        if [ -n "$completions_partial" ]; then
-            compadd -U -S '' -V partial -a completions_partial
+        # If nothing to add, decline completion so zsh doesn't clobber input
+        if [[ ${#completions_partial} -eq 0 && ${#completions} -eq 0 ]]; then
+            return 1
         fi
-        if [ -n "$completions" ]; then
-            compadd -U -V unsorted -a completions
+
+        if [[ ${#completions_partial} -gt 0 ]]; then
+            # -Q to quote special chars; provide list explicitly to avoid odd edge cases
+            compadd -Q -U -S '' -V partial -- ${completions_partial[@]}
+        fi
+        if [[ ${#completions} -gt 0 ]]; then
+            compadd -Q -U -V unsorted -- ${completions[@]}
         fi
     }
     compdef _cor_completion cor
@@ -1002,6 +1048,18 @@ def maintenance_sync(dry_run: bool, sync_all: bool):
         click.echo(click.style("\nNo changes made (dry run).", fg="yellow"))
     else:
         click.echo(click.style("\nDone!", fg="green"))
+
+# Register commands from modules
+cli.add_command(daily)
+cli.add_command(projects)
+cli.add_command(weekly)
+cli.add_command(tree)
+cli.add_command(review)
+cli.add_command(rename)
+cli.add_command(rename, name="move")  # Alias for rename
+cli.add_command(group)
+cli.add_command(process)
+cli.add_command(delete, name="del")  # Alias for delete
 
 
 if __name__ == "__main__":

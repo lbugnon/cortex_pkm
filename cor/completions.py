@@ -1,5 +1,7 @@
 """Shell completion functions for Cortex CLI."""
 
+import os
+
 from click.shell_completion import CompletionItem
 
 from .schema import VALID_TASK_STATUS
@@ -66,7 +68,10 @@ def complete_project(ctx, param, incomplete: str) -> list:
 
 
 def complete_existing_name(ctx, param, incomplete: str) -> list:
-    """Shell completion for existing file names (projects and tasks)."""
+    """Shell completion for existing file names (projects and tasks).
+
+    Uses prefix matching first, falls back to fuzzy matching if no prefix matches.
+    """
     notes_dir = get_notes_dir()
     if not notes_dir.exists():
         return []
@@ -93,6 +98,33 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
         for path in archive_dir.glob("*.md"):
             if not search_stem or path.stem.startswith(search_stem):
                 completions.append(CompletionItem(f"archive/{path.stem}", help="(archived)"))
+
+    # Fuzzy fallback: if no prefix matches and user typed 2+ chars, try fuzzy
+    if not completions and len(search_stem) >= 2:
+        from .fuzzy import fuzzy_match, get_all_file_stems
+
+        candidates = get_all_file_stems(include_archived=include_archived)
+        fuzzy_results = fuzzy_match(search_stem, candidates, limit=5, score_cutoff=50)
+        
+        # For shell completion, only show results within 10 points of the top score
+        # This helps the shell find a common prefix for autocomplete
+        if fuzzy_results:
+            top_score = fuzzy_results[0][2]
+            fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
+            # Collapse 100%-score ties to shortest unless disabled (default disabled)
+            collapse_100 = os.environ.get("COR_COMPLETE_COLLAPSE_100", "0").lower() not in {"0", "false", "no"}
+            if collapse_100 and top_score == 100:
+                top_ties = [r for r in fuzzy_results if r[2] == top_score]
+                if len(top_ties) > 1:
+                    fuzzy_results = [fuzzy_results[0]]
+        
+        for stem, is_archived, score in fuzzy_results:
+            if is_archived:
+                completions.append(
+                    CompletionItem(f"archive/{stem}", help=f"(fuzzy {score}%)")
+                )
+            else:
+                completions.append(CompletionItem(stem, help=f"(fuzzy {score}%)"))
 
     return completions
 
@@ -133,24 +165,48 @@ def complete_project_tasks(ctx, param, incomplete: str) -> list:
 def complete_task_name(ctx, param, incomplete: str) -> list:
     """Shell completion for task names (type: task in frontmatter)."""
     from .parser import parse_note
+    from .fuzzy import fuzzy_match
 
     notes_dir = get_notes_dir()
     if not notes_dir.exists():
         return []
 
-    completions = []
+    tasks = []
 
-    # Check notes dir
+    # Collect all task file stems
     for path in notes_dir.glob("*.md"):
         if path.stem in ("root", "backlog"):
             continue
-        if incomplete and not path.stem.startswith(incomplete):
-            continue
         note = parse_note(path)
         if note and note.note_type == "task":
-            completions.append(CompletionItem(path.stem))
+            tasks.append(path.stem)
 
-    return completions
+    # Prefix matches first
+    prefix_matches = [
+        CompletionItem(stem)
+        for stem in tasks
+        if not incomplete or stem.startswith(incomplete)
+    ]
+
+    # If we found prefix matches or the input is too short, return
+    if prefix_matches or len(incomplete) < 2:
+        return prefix_matches
+
+    # Fuzzy fallback: use new fuzzy sorter (score desc, length asc) and filter near top
+    candidates = [(stem, False) for stem in tasks]
+    fuzzy_results = fuzzy_match(incomplete, candidates, limit=5, score_cutoff=50)
+
+    if fuzzy_results:
+        top_score = fuzzy_results[0][2]
+        fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
+        # Collapse 100%-score ties to shortest unless disabled (default disabled)
+        collapse_100 = os.environ.get("COR_COMPLETE_COLLAPSE_100", "0").lower() not in {"0", "false", "no"}
+        if collapse_100 and top_score == 100:
+            top_ties = [r for r in fuzzy_results if r[2] == top_score]
+            if len(top_ties) > 1:
+                fuzzy_results = [fuzzy_results[0]]
+
+    return [CompletionItem(stem, help=f"(fuzzy {score}%)") for stem, _, score in fuzzy_results]
 
 
 def complete_task_status(ctx, param, incomplete: str) -> list:
@@ -160,3 +216,34 @@ def complete_task_status(ctx, param, incomplete: str) -> list:
         for s in sorted(VALID_TASK_STATUS)
         if not incomplete or s.startswith(incomplete)
     ]
+
+
+def complete_new_parent(ctx, param, incomplete: str) -> list:
+    """Completion for target parent in rename: suggest projects and existing groups.
+
+    - If typing a project: suggest projects
+    - If typing project.: suggest existing groups for that project
+    """
+    projects = get_projects()
+    parts = incomplete.split(".")
+
+    # No dot yet: suggest projects
+    if len(parts) == 1:
+        return [
+            CompletionItem(p, help=f"Project {p}")
+            for p in projects
+            if not incomplete or p.startswith(incomplete)
+        ]
+
+    # After dot: suggest groups under the given project
+    project = parts[0]
+    group_prefix = parts[1] if len(parts) > 1 else ""
+    if project in projects:
+        groups = get_task_groups(project)
+        return [
+            CompletionItem(f"{project}.{g}", help=f"Group {g} in {project}")
+            for g in groups
+            if not group_prefix or g.startswith(group_prefix)
+        ]
+
+    return []

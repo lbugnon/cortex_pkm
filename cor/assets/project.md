@@ -3,6 +3,7 @@ type: project
 status: planning
 created: {date}
 modified: {date}
+tags: []
 ---
 # {name}
 

@@ -1,5 +1,4 @@
-"""Interactive processing commands for Cortex CLI. 
-TODO not sure this is usefull"""
+"""Interactive processing commands for Cortex CLI (process)."""
 
 import re
 
@@ -15,19 +14,23 @@ from ..utils import (
     require_init,
     log_info,
     log_verbose,
+    log_debug,
 )
 
+from ..completions import complete_project
 
-@click.command()
+@click.command(short_help="Interactive backlog processing")
 @require_init
 def process():
     """Interactive prompt to file backlog items into projects.
 
+    \b
     Reads backlog.md, shows each item, and prompts to:
     - Move to a project as a task
     - Keep in backlog
     - Delete
 
+    \b
     Items are processed one by one with keyboard shortcuts.
     """
     notes_dir = get_notes_dir()

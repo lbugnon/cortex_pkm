@@ -25,8 +25,14 @@ def temp_vault(tmp_path, monkeypatch):
     vault = tmp_path / "notes"
     vault.mkdir()
 
-    # Set environment variable so cortex uses this vault
-    monkeypatch.setenv("CORTEX_VAULT", str(vault))
+    # Use XDG_CONFIG_HOME so cor.config picks up our test config directory
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    # Create config that points to this vault (cor reads $XDG_CONFIG_HOME/cortex/config.yaml)
+    config_dir = Path(tmp_path) / "cortex"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file = config_dir / "config.yaml"
+    config_file.write_text(f"vault: {vault}\n")
 
     # Change to vault directory
     monkeypatch.chdir(vault)

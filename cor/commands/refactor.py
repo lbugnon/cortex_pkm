@@ -5,7 +5,7 @@ import shutil
 
 import click
 
-from ..completions import complete_existing_name, complete_group_project, complete_project_tasks
+from ..completions import complete_existing_name, complete_group_project, complete_project_tasks, complete_new_parent
 from ..parser import parse_note
 from ..utils import (
     get_notes_dir,
@@ -19,70 +19,76 @@ from ..utils import (
 )
 
 
-@click.command()
-@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in autocomplete")
+@click.command(short_help="Rename projects/tasks; supports parent shortcuts")
+@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in search")
 @click.argument("old_name", shell_complete=complete_existing_name)
-@click.argument("new_name")
+@click.argument("new_name", shell_complete=complete_new_parent)
 @click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @require_init
 def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
-    """Rename a project or task with all dependencies.
+    """Rename projects/tasks and update all related links.
 
-    Renames the file and all children, updates all links.
-    Use -a to include archived files in autocomplete.
+    Supports fuzzy matching for old_name.
 
-    Examples:
-        cor rename cortex-v0-1 cortex-v1           # rename project
-        cor rename cortex-v0-1.task cortex-v1.task # rename task
-        cor rename old-project new-project --dry-run  # preview changes
-        cor rename -a old-project new-project      # rename archived project
+    \b
+    Shortcuts for tasks (keeps the leaf name):
+      cor rename p1.task1 p2           -> p2.task1
+      cor rename p1.task1 p2.group     -> p2.group.task1
+      cor rename p1.g1.task p2         -> p2.task
+
+    \b
+    Notes:
+    - Creates the target group if it does not exist.
+    - Updates parent/backlinks and all file references.
+    - Use -a to include archived files.
+    - Use --dry-run to preview changes.
     """
-    notes_dir = get_notes_dir()
+    from ..fuzzy import resolve_file_fuzzy, get_file_path
 
+    notes_dir = get_notes_dir()
     archive_dir = notes_dir / "archive"
 
-    # Handle "archive/" prefix if present
+    # Handle "archive/" prefix if present (from tab completion)
     if old_name.startswith("archive/"):
-        old_name = old_name[8:]  # Remove "archive/" prefix
-        in_archive = True
-        main_file = archive_dir / f"{old_name}.md"
-    else:
-        # Find the main file (could be in notes/ or archive/)
-        main_file = notes_dir / f"{old_name}.md"
-        in_archive = False
-        if not main_file.exists() and archive_dir.exists():
-            main_file = archive_dir / f"{old_name}.md"
-            in_archive = True
+        old_name = old_name[8:]
+        archived = True
 
-    if not main_file.exists():
-        raise click.ClickException(f"File not found: {old_name}.md")
+    # Use fuzzy matching to resolve old_name
+    result = resolve_file_fuzzy(old_name, include_archived=archived)
 
-    # Determine the type (project, group, or task)
+    if result is None:
+        return  # User cancelled
+
+    old_name, in_archive = result
+    main_file = get_file_path(old_name, in_archive)
+
+    # Determine types and resolve shortcut behavior
     old_parts = old_name.split(".")
     new_parts = new_name.split(".")
-    
-    # Check if renaming a project or group (no dots in old_name or exactly 2 parts for group)
-    is_project = len(old_parts) == 1
-    is_group = len(old_parts) == 2
-    
-    # Forbid dots in new name for projects and groups
-    if is_project and "." in new_name:
+
+    # Parse note to know if we're renaming a project or a task (group included)
+    note = parse_note(main_file)
+
+    # Project rename keeps validation: new_name must not contain dots
+    if note.note_type == "project" and "." in new_name:
         raise click.ClickException(
             f"Invalid project name '{new_name}': dots are reserved for hierarchy. "
             "Use hyphens instead (e.g., 'v0-1' not 'v0.1')."
         )
-    
-    if is_group and len(new_parts) != 2:
-        raise click.ClickException(
-            f"Invalid group name '{new_name}': must keep format 'project.group'. "
-            "Dots are reserved for hierarchy. Use hyphens in names instead."
-        )
-    
-    if is_group and "." in new_parts[-1]:
-        raise click.ClickException(
-            f"Invalid group name '{new_name}': dots in group part are not allowed. "
-            "Use hyphens instead (e.g., 'my-project.group-name')."
-        )
+
+    # Resolve shortcut for tasks: keep leaf name, change parent to project or project.group
+    resolved_new_name = new_name
+    if note.note_type == "task" and len(old_parts) >= 2:
+        leaf = old_parts[-1]
+        if len(new_parts) == 1:
+            # cor rename p1.g1.task -> p2  => p2.task
+            resolved_new_name = f"{new_parts[0]}.{leaf}"
+        elif len(new_parts) == 2:
+            # cor rename p1.task1 -> p2.group  => p2.group.task1
+            resolved_new_name = f"{new_parts[0]}.{new_parts[1]}.{leaf}"
+        else:
+            # 3+ parts in new_name means explicit full rename; use as-is
+            resolved_new_name = new_name
 
 
     # Collect all files to rename (main file + children)
@@ -90,7 +96,7 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     target_dir = archive_dir if in_archive else notes_dir
 
     # Main file
-    new_main_file = target_dir / f"{new_name}.md"
+    new_main_file = target_dir / f"{resolved_new_name}.md"
     if new_main_file.exists():
         raise click.ClickException(f"Target already exists: {new_main_file}")
     files_to_rename.append((main_file, new_main_file))
@@ -100,7 +106,7 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
         for child in search_dir.glob(f"{old_name}.*.md"):
             # Replace old prefix with new prefix
             child_suffix = child.stem[len(old_name):]  # e.g., ".task_name"
-            new_child_name = f"{new_name}{child_suffix}.md"
+            new_child_name = f"{resolved_new_name}{child_suffix}.md"
             new_child_path = search_dir / new_child_name
 
             if new_child_path.exists():
@@ -153,6 +159,30 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
 
         log_info(click.style("\nRun without --dry-run to apply changes.", fg="yellow"))
         return
+
+    # Auto-create target group if needed (for task moves to project.group)
+    if note.note_type == "task":
+        resolved_parts = resolved_new_name.split(".")
+        # Parent is project or project.group; create group if len>=3 and group missing
+        if len(resolved_parts) >= 3:
+            project = resolved_parts[0]
+            group_name = resolved_parts[1]
+            parent_group_stem = f"{project}.{group_name}"
+            parent_group_path = (archive_dir if in_archive else notes_dir) / f"{parent_group_stem}.md"
+            project_path = (archive_dir if in_archive else notes_dir) / f"{project}.md"
+            if not project_path.exists():
+                raise click.ClickException(f"Project not found: {project}.md")
+            if not parent_group_path.exists():
+                # Create group file from task template
+                log_info(click.style("Creating target group:", fg="cyan"))
+                project_note = parse_note(project_path)
+                project_title = project_note.title if project_note else format_title(project)
+                template = get_template("task")
+                content = render_template(template, group_name, parent=project, parent_title=project_title)
+                parent_group_path.write_text(content)
+                # Add group to project's Tasks section
+                add_task_to_project(project_path, group_name, parent_group_stem)
+                log_info(f"  Created {parent_group_path}")
 
     # Perform renames
     log_info(click.style("Renaming files:", fg="cyan"))
@@ -349,21 +379,24 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     log_info(click.style("\nDone!", fg="green"))
 
 
-@click.command()
+@click.command(short_help="Create a group and move tasks under it")
 @click.argument("group", shell_complete=complete_group_project)
 @click.argument("tasks", nargs=-1, shell_complete=complete_project_tasks)
 @click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @require_init
 def group(group: str, tasks: tuple, dry_run: bool):
-    """Group existing tasks under a new task group.
+    """Group existing tasks under a new or existing group.
 
-    Creates a new group file and moves tasks under it.
-    Tasks are inferred to belong to the same project as the group.
-
+    \b
     Examples:
-        cor group myproject.refactor task1 task2   # group task1, task2 under refactor
-        cor group myproject.v2 feature1 feature2   # group features under v2
-        cor group myproject.cleanup old-task --dry-run  # preview changes
+      cor group myproj.refactor task1 task2
+      cor group myproj.v2 feature1 feature2
+
+    \b
+    Notes:
+    - Creates the group file if it does not exist.
+    - Updates parent/backlinks and links accordingly.
+    - Use --dry-run to preview changes.
     """
     notes_dir = get_notes_dir()
 
