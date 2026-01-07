@@ -1,50 +1,59 @@
-"""Vault configuration and path resolution."""
+"""Vault configuration and path resolution.
+
+This module reads and writes a YAML config at ~/.config/cortex/config.yaml
+to store the active vault and other user preferences. 
+"""
 
 import os
 from pathlib import Path
 
 import yaml
 
-CONFIG_DIR = Path.home() / ".config" / "cortex"
-CONFIG_FILE = CONFIG_DIR / "config.yaml"
+
+def _config_dir() -> Path:
+    """Return the configuration directory (respects XDG_CONFIG_HOME)."""
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        base = Path(xdg)
+    else:
+        base = Path.home() / ".config"
+    return base / "cortex"
+
+
+def _config_file() -> Path:
+    """Return the path to the config file."""
+    return _config_dir() / "config.yaml"
 
 
 def load_config() -> dict:
-    """Load config from ~/.config/cortex/config.yaml."""
-    if not CONFIG_FILE.exists():
+    """Load config from the config file, returning an empty dict if missing."""
+    cfg = _config_file()
+    if not cfg.exists():
         return {}
     try:
-        return yaml.safe_load(CONFIG_FILE.read_text()) or {}
+        return yaml.safe_load(cfg.read_text()) or {}
     except yaml.YAMLError:
         return {}
 
 
 def save_config(config: dict) -> None:
-    """Save config to ~/.config/cortex/config.yaml."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(yaml.dump(config, default_flow_style=False))
+    """Save config to the config file, creating directories as needed."""
+    cfg_dir = _config_dir()
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    _config_file().write_text(yaml.dump(config, default_flow_style=False))
 
 
 def get_vault_path() -> Path:
-    """Get vault path with resolution priority.
+    """Get vault path from config file.
 
-    Priority:
-    1. CORTEX_VAULT environment variable
-    2. Config file (~/.config/cortex/config.yaml)
-    3. Current directory (fallback)
+    Raises ValueError if not configured.
     """
-    # 1. Environment variable
-    env_vault = os.environ.get("CORTEX_VAULT")
-    if env_vault:
-        return Path(env_vault)
-
-    # 2. Config file
     config = load_config()
-    if "vault" in config and config["vault"]:
-        return Path(config["vault"])
-
-    # 3. Current directory
-    return Path.cwd()
+    if "vault" not in config or not config["vault"]:
+        raise ValueError(
+            "Vault path not configured. Run 'cor config set vault /path/to/notes' first."
+        )
+    return Path(config["vault"])
 
 
 def set_vault_path(path: Path) -> None:
@@ -61,14 +70,7 @@ def is_vault_initialized(vault_path: Path | None = None) -> bool:
 
 
 def get_verbosity() -> int:
-    """Get verbosity level from config (default: 0).
-
-    Levels:
-    - 0: Silent (only errors and essential output)
-    - 1: Normal (standard output)
-    - 2: Verbose (detailed information)
-    - 3: Debug (very detailed with internals)
-    """
+    """Get verbosity level from config (default: 1)."""
     config = load_config()
     return config.get("verbosity", 1)
 
@@ -80,3 +82,8 @@ def set_verbosity(level: int) -> None:
     config = load_config()
     config["verbosity"] = level
     save_config(config)
+
+
+def config_file() -> Path:
+    """Return the current config file path."""
+    return _config_file()

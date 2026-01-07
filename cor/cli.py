@@ -14,7 +14,7 @@ import frontmatter
 from . import __version__
 from .commands import daily, projects, weekly, tree, review, rename, group, process
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
-from .config import set_vault_path, load_config, CONFIG_FILE, set_verbosity, get_verbosity
+from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity
 from .maintenance import MaintenanceRunner
 from .parser import parse_note
 from .schema import STATUS_SYMBOLS, VALID_TASK_STATUS, DATE_TIME
@@ -360,7 +360,7 @@ def config(key: str | None, value: str | None):
                 raise click.ClickException(f"Path is not a directory: {path}")
             set_vault_path(path)
             click.echo(f"Vault path set to: {path}")
-            click.echo(f"Config saved to: {CONFIG_FILE}")
+            click.echo(f"Config saved to: {config_file()}")
 
 
 @cli.command()
