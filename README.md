@@ -278,7 +278,7 @@ Add to your `~/.zshrc` to enable Tab cycling through suggestions:
 ```zsh
 # Enable Tab to cycle through completion matches (recommended)
 bindkey '^I' menu-complete
-bindkey '\e[Z]' reverse-menu-complete  # Shift-Tab for reverse
+bindkey '^[[Z' reverse-menu-complete  # Shift-Tab for reverse
 ```
 
 Then reactivate your environment:
