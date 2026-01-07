@@ -58,17 +58,6 @@ def cli(ctx, verbose: int):
         new_level = min(current_level + verbose, 3)
         set_verbosity(new_level)
 
-# Register commands from modules
-cli.add_command(daily)
-cli.add_command(projects)
-cli.add_command(weekly)
-cli.add_command(tree)
-cli.add_command(review)
-cli.add_command(rename)
-cli.add_command(rename, name="move")  # Alias for rename
-cli.add_command(group)
-cli.add_command(process)
-cli.add_command(refine)
 
 
 @cli.command()
@@ -552,7 +541,7 @@ def edit(archived: bool, name: str):
     Examples:
       cor edit my-project
       cor edit my-project.implement-feature
-      cor edit -a old-project
+      cor edit -a old-project      
     """
     notes_dir = get_notes_dir()
 
@@ -574,6 +563,34 @@ def edit(archived: bool, name: str):
         raise click.ClickException(f"File not found: {name}.md")
 
     open_in_editor(file_path)
+
+
+@cli.command(name="delete")
+@click.argument("name", shell_complete=complete_existing_name)
+@require_init
+def delete(name: str):
+    """Delete a note quickly and update references.
+
+    \b
+    Examples:
+        cor delete my-project.implement-feature
+        cor del my-project.implement-feature
+    """
+    notes_dir = get_notes_dir()
+
+    # Resolve path in notes or archive
+    file_path = notes_dir / f"{name}.md"
+    if not file_path.exists():
+        archive_path = notes_dir / "archive" / f"{name}.md"
+        file_path = archive_path
+
+    if not file_path.exists():
+        raise click.ClickException(f"File not found: {name}.md")
+
+    file_path.unlink()
+    runner = MaintenanceRunner(notes_dir, dry_run=False)
+    runner.sync([], deleted=[str(file_path)])
+    click.echo(click.style(f"Deleted {name}.md", fg="red"))
 
 
 @cli.command()
@@ -992,6 +1009,19 @@ def maintenance_sync(dry_run: bool, sync_all: bool):
         click.echo(click.style("\nNo changes made (dry run).", fg="yellow"))
     else:
         click.echo(click.style("\nDone!", fg="green"))
+
+# Register commands from modules
+cli.add_command(daily)
+cli.add_command(projects)
+cli.add_command(weekly)
+cli.add_command(tree)
+cli.add_command(review)
+cli.add_command(rename)
+cli.add_command(rename, name="move")  # Alias for rename
+cli.add_command(group)
+cli.add_command(process)
+cli.add_command(refine)
+cli.add_command(delete, name="del")  # Alias for delete
 
 
 if __name__ == "__main__":
