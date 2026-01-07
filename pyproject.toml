@@ -28,6 +28,8 @@ classifiers = [
 dependencies = [
     "click>=8.0",
     "python-frontmatter>=1.0",
+    "rapidfuzz>=3.0",
+    "simple-term-menu>=1.6",
 ]
 
 [project.urls]

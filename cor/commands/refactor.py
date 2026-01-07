@@ -20,13 +20,15 @@ from ..utils import (
 
 
 @click.command(short_help="Rename projects/tasks; supports parent shortcuts")
-@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in autocomplete")
+@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in search")
 @click.argument("old_name", shell_complete=complete_existing_name)
 @click.argument("new_name", shell_complete=complete_new_parent)
 @click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @require_init
 def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     """Rename projects/tasks and update all related links.
+
+    Supports fuzzy matching for old_name.
 
     \b
     Shortcuts for tasks (keeps the leaf name):
@@ -41,25 +43,24 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     - Use -a to include archived files.
     - Use --dry-run to preview changes.
     """
-    notes_dir = get_notes_dir()
+    from ..fuzzy import resolve_file_fuzzy, get_file_path
 
+    notes_dir = get_notes_dir()
     archive_dir = notes_dir / "archive"
 
-    # Handle "archive/" prefix if present
+    # Handle "archive/" prefix if present (from tab completion)
     if old_name.startswith("archive/"):
-        old_name = old_name[8:]  # Remove "archive/" prefix
-        in_archive = True
-        main_file = archive_dir / f"{old_name}.md"
-    else:
-        # Find the main file (could be in notes/ or archive/)
-        main_file = notes_dir / f"{old_name}.md"
-        in_archive = False
-        if not main_file.exists() and archive_dir.exists():
-            main_file = archive_dir / f"{old_name}.md"
-            in_archive = True
+        old_name = old_name[8:]
+        archived = True
 
-    if not main_file.exists():
-        raise click.ClickException(f"File not found: {old_name}.md")
+    # Use fuzzy matching to resolve old_name
+    result = resolve_file_fuzzy(old_name, include_archived=archived)
+
+    if result is None:
+        return  # User cancelled
+
+    old_name, in_archive = result
+    main_file = get_file_path(old_name, in_archive)
 
     # Determine types and resolve shortcut behavior
     old_parts = old_name.split(".")
