@@ -66,7 +66,10 @@ def complete_project(ctx, param, incomplete: str) -> list:
 
 
 def complete_existing_name(ctx, param, incomplete: str) -> list:
-    """Shell completion for existing file names (projects and tasks)."""
+    """Shell completion for existing file names (projects and tasks).
+
+    Uses prefix matching first, falls back to fuzzy matching if no prefix matches.
+    """
     notes_dir = get_notes_dir()
     if not notes_dir.exists():
         return []
@@ -93,6 +96,20 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
         for path in archive_dir.glob("*.md"):
             if not search_stem or path.stem.startswith(search_stem):
                 completions.append(CompletionItem(f"archive/{path.stem}", help="(archived)"))
+
+    # Fuzzy fallback: if no prefix matches and user typed 2+ chars, try fuzzy
+    if not completions and len(search_stem) >= 2:
+        from .fuzzy import fuzzy_match, get_all_file_stems
+
+        candidates = get_all_file_stems(include_archived=include_archived)
+        fuzzy_results = fuzzy_match(search_stem, candidates, limit=5, score_cutoff=50)
+        for stem, is_archived, score in fuzzy_results:
+            if is_archived:
+                completions.append(
+                    CompletionItem(f"archive/{stem}", help=f"(fuzzy {score}%)")
+                )
+            else:
+                completions.append(CompletionItem(stem, help=f"(fuzzy {score}%)"))
 
     return completions
 

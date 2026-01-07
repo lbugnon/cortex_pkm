@@ -528,69 +528,74 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
 
 
 @cli.command()
-@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Search in archive folder")
+@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in search")
 @click.argument("name", shell_complete=complete_existing_name)
 @require_init
 def edit(archived: bool, name: str):
     """Open a file in your editor.
 
-    Supports tab completion for all vault files.
-    Use -a to search archived files.
+    Supports fuzzy matching - type partial names and select from matches.
+    Use -a to include archived files in search.
 
     \b
     Examples:
-      cor edit my-project
-      cor edit my-project.implement-feature
-      cor edit -a old-project      
+      cor edit my-proj          # Fuzzy matches 'my-project'
+      cor edit foundation       # Interactive picker if multiple matches
+      cor edit -a old-project   # Include archived files
     """
-    notes_dir = get_notes_dir()
+    from .fuzzy import resolve_file_fuzzy, get_file_path
 
-    # Handle "archive/" prefix if present
+    # Handle "archive/" prefix if present (from tab completion)
     if name.startswith("archive/"):
-        file_path = notes_dir / name[8:] + ".md"
-        file_path = notes_dir / "archive" / f"{name[8:]}.md"
-    else:
-        # Check main notes dir first
-        file_path = notes_dir / f"{name}.md"
+        name = name[8:]
+        archived = True
 
-        # Check archive if not found
-        if not file_path.exists():
-            archive_path = notes_dir / "archive" / f"{name}.md"
-            if archive_path.exists():
-                file_path = archive_path
+    result = resolve_file_fuzzy(name, include_archived=archived)
 
-    if not file_path.exists():
-        raise click.ClickException(f"File not found: {name}.md")
+    if result is None:
+        return  # User cancelled
+
+    stem, is_archived = result
+    file_path = get_file_path(stem, is_archived)
 
     open_in_editor(file_path)
 
 
 @cli.command(name="delete")
+@click.option("--archived", "-a", is_flag=True, help="Include archived files in search")
 @click.argument("name", shell_complete=complete_existing_name)
 @require_init
-def delete(name: str):
+def delete(archived: bool, name: str):
     """Delete a note quickly and update references.
+
+    Supports fuzzy matching for file names.
 
     \b
     Examples:
-        cor delete my-project.implement-feature
-        cor del my-project.implement-feature
+        cor delete my-proj                  # Fuzzy matches 'my-project'
+        cor delete -a old-project           # Include archived files
     """
+    from .fuzzy import resolve_file_fuzzy, get_file_path
+
     notes_dir = get_notes_dir()
 
-    # Resolve path in notes or archive
-    file_path = notes_dir / f"{name}.md"
-    if not file_path.exists():
-        archive_path = notes_dir / "archive" / f"{name}.md"
-        file_path = archive_path
+    # Handle "archive/" prefix if present (from tab completion)
+    if name.startswith("archive/"):
+        name = name[8:]
+        archived = True
 
-    if not file_path.exists():
-        raise click.ClickException(f"File not found: {name}.md")
+    result = resolve_file_fuzzy(name, include_archived=archived)
+
+    if result is None:
+        return  # User cancelled
+
+    stem, is_archived = result
+    file_path = get_file_path(stem, is_archived)
 
     file_path.unlink()
     runner = MaintenanceRunner(notes_dir, dry_run=False)
     runner.sync([], deleted=[str(file_path)])
-    click.echo(click.style(f"Deleted {name}.md", fg="red"))
+    click.echo(click.style(f"Deleted {stem}.md", fg="red"))
 
 
 @cli.command()
@@ -705,6 +710,8 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
 def mark(name: str, status: str):
     """Update task status.
 
+    Supports fuzzy matching for task names.
+
     \b
     Status values:
       todo       Ready to start
@@ -716,15 +723,21 @@ def mark(name: str, status: str):
 
     \b
     Examples:
-      cor mark my-project.implement-api active
+      cor mark impl active          # Fuzzy matches 'implement-api'
       cor mark my-project.research done
     """
+    from .fuzzy import resolve_file_fuzzy, get_file_path
+
     notes_dir = get_notes_dir()
 
-    file_path = notes_dir / f"{name}.md"
+    # Use fuzzy matching (only active files, not archived)
+    result = resolve_file_fuzzy(name, include_archived=False)
 
-    if not file_path.exists():
-        raise click.ClickException(f"File not found: {name}.md")
+    if result is None:
+        return  # User cancelled
+
+    stem, _ = result
+    file_path = notes_dir / f"{stem}.md"
 
     # Validate it's a task
     note = parse_note(file_path)
@@ -734,7 +747,7 @@ def mark(name: str, status: str):
 
     if note.note_type != "task":
         raise click.ClickException(
-            f"'{name}' is a {note.note_type}, not a task. "
+            f"'{stem}' is a {note.note_type}, not a task. "
             "This command only works with tasks."
         )
 
