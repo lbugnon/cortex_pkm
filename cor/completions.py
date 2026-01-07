@@ -103,6 +103,13 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
 
         candidates = get_all_file_stems(include_archived=include_archived)
         fuzzy_results = fuzzy_match(search_stem, candidates, limit=5, score_cutoff=50)
+        
+        # For shell completion, only show results within 10 points of the top score
+        # This helps the shell find a common prefix for autocomplete
+        if fuzzy_results:
+            top_score = fuzzy_results[0][2]
+            fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
+        
         for stem, is_archived, score in fuzzy_results:
             if is_archived:
                 completions.append(

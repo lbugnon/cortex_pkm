@@ -52,7 +52,7 @@ def fuzzy_match(
         score_cutoff: Minimum score (0-100) to include
 
     Returns:
-        List of (stem, is_archived, score) sorted by score descending
+        List of (stem, is_archived, score) sorted by score descending, then by length ascending
     """
     if not candidates:
         return []
@@ -71,7 +71,13 @@ def fuzzy_match(
 
     # Map back to full tuples with scores
     stem_to_archived = {c[0]: c[1] for c in candidates}
-    return [(match[0], stem_to_archived[match[0]], int(match[1])) for match in results]
+    matches = [(match[0], stem_to_archived[match[0]], int(match[1])) for match in results]
+    
+    # Sort by score (descending), then by length (ascending) for ties
+    # This ensures shorter matches are preferred when scores are equal
+    matches.sort(key=lambda x: (-x[2], len(x[0])))
+    
+    return matches
 
 
 def show_picker(
