@@ -14,7 +14,7 @@ import frontmatter
 from . import __version__
 from .commands import daily, projects, weekly, tree, review, rename, group, process
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
-from .config import set_vault_path, load_config, CONFIG_FILE, set_verbosity, get_verbosity
+from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity
 from .maintenance import MaintenanceRunner
 from .parser import parse_note
 from .schema import STATUS_SYMBOLS, VALID_TASK_STATUS, DATE_TIME
@@ -360,7 +360,7 @@ def config(key: str | None, value: str | None):
                 raise click.ClickException(f"Path is not a directory: {path}")
             set_vault_path(path)
             click.echo(f"Vault path set to: {path}")
-            click.echo(f"Config saved to: {CONFIG_FILE}")
+            click.echo(f"Config saved to: {config_file()}")
 
 
 @cli.command()
@@ -842,9 +842,9 @@ def hooks_install():
         activate_dir.mkdir(parents=True, exist_ok=True)
 
         completion_script = activate_dir / "cor-completion.sh"
-        # Custom zsh completion that doesn't add space after partial completions
+        # Cortex shell completion for zsh and bash
         completion_script.write_text('''\
-# Cortex shell completion
+# Cortex shell completion (zsh and bash)
 if [ -n "$ZSH_VERSION" ]; then
     _cor_completion() {
         local -a completions completions_partial
@@ -853,8 +853,15 @@ if [ -n "$ZSH_VERSION" ]; then
 
         response=("${(@f)$(env COMP_WORDS="${words[*]}" COMP_CWORD=$((CURRENT-1)) _COR_COMPLETE=zsh_complete cor)}")
 
-        for type key descr in ${response}; do
-            if [[ "$type" == "plain" ]]; then
+        # click zsh completion returns triples: type, value, help per item
+        local i=1
+        local rlen=${#response}
+        while (( i <= rlen )); do
+            local type=${response[i]}
+            local key=${response[i+1]:-}
+            local descr=${response[i+2]:-}
+            (( i += 3 ))
+            if [[ "$type" == "plain" && -n "$key" ]]; then
                 if [[ "$key" == *. ]]; then
                     # Partial completion (ends with .) - no trailing space
                     completions_partial+=("$key")
@@ -864,11 +871,17 @@ if [ -n "$ZSH_VERSION" ]; then
             fi
         done
 
-        if [ -n "$completions_partial" ]; then
-            compadd -U -S '' -V partial -a completions_partial
+        # If nothing to add, decline completion so zsh doesn't clobber input
+        if [[ ${#completions_partial} -eq 0 && ${#completions} -eq 0 ]]; then
+            return 1
         fi
-        if [ -n "$completions" ]; then
-            compadd -U -V unsorted -a completions
+
+        if [[ ${#completions_partial} -gt 0 ]]; then
+            # -Q to quote special chars; provide list explicitly to avoid odd edge cases
+            compadd -Q -U -S '' -V partial -- ${completions_partial[@]}
+        fi
+        if [[ ${#completions} -gt 0 ]]; then
+            compadd -Q -U -V unsorted -- ${completions[@]}
         fi
     }
     compdef _cor_completion cor

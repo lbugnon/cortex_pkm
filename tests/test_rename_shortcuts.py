@@ -12,7 +12,6 @@ def runner():
 
 @pytest.fixture
 def initialized_vault(temp_vault, runner, monkeypatch):
-    monkeypatch.setenv("CORTEX_VAULT", str(temp_vault))
     monkeypatch.chdir(temp_vault)
     # Init git for hooks/maintenance in rename
     subprocess.run(["git", "init"], cwd=temp_vault, capture_output=True)

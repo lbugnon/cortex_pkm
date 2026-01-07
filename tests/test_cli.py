@@ -34,7 +34,6 @@ class TestInit:
 
     def test_init_creates_root_md(self, runner, tmp_path, monkeypatch):
         """cor init should create root.md"""
-        monkeypatch.setenv("CORTEX_VAULT", str(tmp_path))
         monkeypatch.chdir(tmp_path)
 
         # Initialize git first
@@ -49,7 +48,6 @@ class TestInit:
 
     def test_init_creates_templates(self, runner, tmp_path, monkeypatch):
         """cor init should create template files."""
-        monkeypatch.setenv("CORTEX_VAULT", str(tmp_path))
         monkeypatch.chdir(tmp_path)
 
         import subprocess
@@ -72,7 +70,6 @@ class TestNew:
 
     def test_new_project_creates_file(self, runner, initialized_vault, monkeypatch):
         """cor new project should create a project file."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         result = runner.invoke(cli, ["new", "project", "testproject", "--no_edit"])
@@ -81,7 +78,6 @@ class TestNew:
 
     def test_new_project_has_frontmatter(self, runner, initialized_vault, monkeypatch):
         """New project should have proper frontmatter."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "testproject", "--no_edit"])
@@ -92,7 +88,6 @@ class TestNew:
 
     def test_new_task_under_project(self, runner, initialized_vault, monkeypatch):
         """cor new task project.taskname should create task under project."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         # Create project first
@@ -105,7 +100,6 @@ class TestNew:
 
     def test_new_task_has_parent_link(self, runner, initialized_vault, monkeypatch):
         """New task should have link back to parent project."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
@@ -117,7 +111,6 @@ class TestNew:
 
     def test_new_task_added_to_project(self, runner, initialized_vault, monkeypatch):
         """New task should be added to project's Tasks section."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
@@ -129,7 +122,6 @@ class TestNew:
 
     def test_new_task_creates_group_if_needed(self, runner, initialized_vault, monkeypatch):
         """cor new task project.group.task should create group if it doesn't exist."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
@@ -141,7 +133,6 @@ class TestNew:
 
     def test_new_project_rejects_dots(self, runner, initialized_vault, monkeypatch):
         """Project names cannot contain dots."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         result = runner.invoke(cli, ["new", "project", "my.project", "--no_edit"])
@@ -149,7 +140,6 @@ class TestNew:
 
     def test_new_note_under_project(self, runner, initialized_vault, monkeypatch):
         """cor new note project.notename should create note under project."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
@@ -167,7 +157,6 @@ class TestStatus:
 
     def test_status_shows_overdue(self, runner, initialized_vault, monkeypatch):
         """cor daily should show overdue tasks."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         # Create a task with past due date
@@ -188,7 +177,6 @@ class TestProjects:
 
     def test_projects_lists_projects(self, runner, initialized_vault, monkeypatch):
         """cor projects should list all projects."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "proj1", "--no_edit"])
@@ -201,7 +189,6 @@ class TestProjects:
 
     def test_projects_shows_status(self, runner, initialized_vault, monkeypatch):
         """cor projects should show project status."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
@@ -215,7 +202,6 @@ class TestTree:
 
     def test_tree_shows_tasks(self, runner, initialized_vault, monkeypatch):
         """cor tree should show project tasks."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
@@ -229,9 +215,8 @@ class TestTree:
 
     def test_tree_shows_nested_tasks(self, runner, initialized_vault, monkeypatch):
         """cor tree should show nested task groups."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
-
+        runner.invoke(cli, ["init", "--yes"])
         runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
         runner.invoke(cli, ["new", "task", "myproj.group.subtask", "--no_edit"])
 
