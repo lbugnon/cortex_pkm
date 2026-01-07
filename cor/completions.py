@@ -157,24 +157,42 @@ def complete_project_tasks(ctx, param, incomplete: str) -> list:
 def complete_task_name(ctx, param, incomplete: str) -> list:
     """Shell completion for task names (type: task in frontmatter)."""
     from .parser import parse_note
+    from .fuzzy import fuzzy_match
 
     notes_dir = get_notes_dir()
     if not notes_dir.exists():
         return []
 
-    completions = []
+    tasks = []
 
-    # Check notes dir
+    # Collect all task file stems
     for path in notes_dir.glob("*.md"):
         if path.stem in ("root", "backlog"):
             continue
-        if incomplete and not path.stem.startswith(incomplete):
-            continue
         note = parse_note(path)
         if note and note.note_type == "task":
-            completions.append(CompletionItem(path.stem))
+            tasks.append(path.stem)
 
-    return completions
+    # Prefix matches first
+    prefix_matches = [
+        CompletionItem(stem)
+        for stem in tasks
+        if not incomplete or stem.startswith(incomplete)
+    ]
+
+    # If we found prefix matches or the input is too short, return
+    if prefix_matches or len(incomplete) < 2:
+        return prefix_matches
+
+    # Fuzzy fallback: use new fuzzy sorter (score desc, length asc) and filter near top
+    candidates = [(stem, False) for stem in tasks]
+    fuzzy_results = fuzzy_match(incomplete, candidates, limit=5, score_cutoff=50)
+
+    if fuzzy_results:
+        top_score = fuzzy_results[0][2]
+        fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
+
+    return [CompletionItem(stem, help=f"(fuzzy {score}%)") for stem, _, score in fuzzy_results]
 
 
 def complete_task_status(ctx, param, incomplete: str) -> list:
