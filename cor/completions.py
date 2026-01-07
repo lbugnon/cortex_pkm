@@ -109,6 +109,11 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
         if fuzzy_results:
             top_score = fuzzy_results[0][2]
             fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
+            # If multiple results tie at 100%, pick the shortest to enable immediate TAB
+            if top_score == 100:
+                top_ties = [r for r in fuzzy_results if r[2] == top_score]
+                if len(top_ties) > 1:
+                    fuzzy_results = [fuzzy_results[0]]
         
         for stem, is_archived, score in fuzzy_results:
             if is_archived:
@@ -191,6 +196,11 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
     if fuzzy_results:
         top_score = fuzzy_results[0][2]
         fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
+        # If multiple results tie at 100%, pick the shortest to enable immediate TAB
+        if top_score == 100:
+            top_ties = [r for r in fuzzy_results if r[2] == top_score]
+            if len(top_ties) > 1:
+                fuzzy_results = [fuzzy_results[0]]
 
     return [CompletionItem(stem, help=f"(fuzzy {score}%)") for stem, _, score in fuzzy_results]
 
