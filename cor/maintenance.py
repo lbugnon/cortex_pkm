@@ -369,6 +369,18 @@ class MaintenanceRunner:
             if self.update_modified_date(filepath):
                 result.modified_dates_updated.append(filepath)
 
+        # === VALIDATE BEFORE ARCHIVE/UNARCHIVE ===
+        # Validate early to prevent archiving invalid state changes
+        # (e.g., marking a group as done with incomplete children)
+        for filepath in staged_files:
+            errors = self.validate_file(filepath)
+            if errors:
+                result.errors[filepath] = errors
+
+        # If validation errors found, stop here
+        if result.errors:
+            return result
+
         # IMPORTANT: Archive/unarchive MUST happen before sync_task_status_to_project
         # so that file locations are correct when updating parent checkboxes
 
@@ -414,12 +426,6 @@ class MaintenanceRunner:
         # Sort tasks in parent files by status
         sorted_parents = self.sort_all_parents(staged_files)
         result.tasks_sorted.extend(sorted_parents)
-
-        # === VALIDATE AFTER SYNC (catch remaining issues) ===
-        for filepath in staged_files:
-            errors = self.validate_file(filepath)
-            if errors:
-                result.errors[filepath] = errors
 
         return result
 

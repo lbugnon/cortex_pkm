@@ -757,6 +757,19 @@ def mark(name: str, status: str):
             f"Valid: {', '.join(sorted(VALID_TASK_STATUS))}"
         )
 
+    # Validate: task groups and projects cannot be marked done/dropped if children are incomplete
+    if status in ("done", "dropped"):
+        runner = MaintenanceRunner(notes_dir)
+        task_name = note.path.stem
+        incomplete = runner.get_incomplete_tasks(task_name)
+        
+        if incomplete:
+            note_type = note.note_type
+            if note_type == "task":
+                raise click.ClickException(
+                    f"Cannot mark task group as {status}. Incomplete tasks: {', '.join(incomplete)}"
+                )
+
     # Load and update frontmatter
     post = frontmatter.load(file_path)
 

@@ -435,6 +435,34 @@ class TestValidation:
         returncode, stdout, stderr = run_precommit(vault)
         assert returncode != 0, "Pre-commit should fail when marking project done with incomplete tasks"
 
+    def test_done_group_with_incomplete_tasks_rejected(self, project_with_group):
+        """Task group cannot be marked done if its children are incomplete."""
+        vault = project_with_group["vault"]
+        group = project_with_group["group"]
+
+        content = group.read_text().replace("status: todo", "status: done")
+        group.write_text(content)
+
+        stage_files(vault, group)
+
+        returncode, stdout, stderr = run_precommit(vault)
+        assert returncode != 0, "Pre-commit should fail when marking group done with incomplete tasks"
+        assert "task-group" in stderr.lower() or "incomplete tasks" in stderr.lower()
+
+    def test_dropped_group_with_incomplete_tasks_rejected(self, project_with_group):
+        """Task group cannot be dropped if its children are incomplete."""
+        vault = project_with_group["vault"]
+        group = project_with_group["group"]
+
+        content = group.read_text().replace("status: todo", "status: dropped")
+        group.write_text(content)
+
+        stage_files(vault, group)
+
+        returncode, stdout, stderr = run_precommit(vault)
+        assert returncode != 0, "Pre-commit should fail when dropping group with incomplete tasks"
+        assert "task-group" in stderr.lower() or "incomplete tasks" in stderr.lower()
+
 
 class TestLinkUpdates:
     """Test link updates during archive/unarchive."""
