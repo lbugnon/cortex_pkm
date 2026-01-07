@@ -38,7 +38,7 @@ HOOKS_DIR = Path(__file__).parent / "hooks"
     "help_option_names": ["-h", "--help"],
     "max_content_width": 100,
 })
-@click.version_option(__version__, prog_name="cor")
+@click.version_option(__version__, prog_name="CortexPKM")
 @click.option(
     "--verbose", "-v",
     count=True,
