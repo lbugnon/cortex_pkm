@@ -38,7 +38,7 @@ def _update_root_section(notes_dir, section: str, body: str) -> None:
         return
 
     content = root_path.read_text()
-    body_clean = body.rstrip() + "\n"
+    body_clean = body.lstrip("\n").rstrip() + "\n"
     pattern = rf"(## {re.escape(section)}\n)(.*?)(\n## |\Z)"
     match = re.search(pattern, content, flags=re.S)
 
@@ -179,7 +179,7 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
         project_line = f"  {project_display}"
         click.echo(project_line)
         if capture is not None:
-            capture.append(project_line)
+            capture.append(click.unstyle(project_line))
         for task in project_tasks:
             if limit and shown >= limit:
                 break
@@ -190,7 +190,7 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
             line = f"  └── {styled_symbol} {task.title}{info}"
             click.echo(line)
             if capture is not None:
-                capture.append(click.unstyle(f"{project_display}: {symbol} {task.title}{info}"))
+                capture.append(click.unstyle(line))
             shown += 1
 
     remaining = len(tasks) - shown
@@ -421,8 +421,7 @@ def projects(show_all: bool):
     header = click.style("\nProjects:", bold=True)
     click.echo(header)
     click.echo()
-    header_plain = click.unstyle("Projects:")
-    root_lines.append(header_plain)
+    root_lines.append(click.unstyle(header))
 
     for p in projects_list:
         # Use last activity from children, fall back to project modified date
@@ -450,7 +449,7 @@ def projects(show_all: bool):
         display_title = format_title(p.title)
         line = f"  {status_styled} {display_title} - {age_styled}"
         click.echo(line)
-        root_lines.append(f"{display_title}: [{status_display}] {age_str}")
+        root_lines.append(click.unstyle(line))
 
     click.echo()
 
