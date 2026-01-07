@@ -1,4 +1,4 @@
-"""Interactive processing commands for Cortex CLI (process, refine)."""
+"""Interactive processing commands for Cortex CLI (process)."""
 
 import re
 
@@ -223,55 +223,3 @@ def process():
 
     backlog_path.write_text(new_content)
     log_info(click.style("\nBacklog updated.", fg="green"))
-
-
-@click.command(short_help="LLM suggestions to refine a project")
-@click.argument("project", shell_complete=complete_project)
-@click.option("--explain", "-e", is_flag=True, help="Show prompt and raw response for debugging")
-@click.option("--model", "-m", default="qwen2.5:0.5b", help="Ollama model to use")
-@require_init
-def refine(project: str, explain: bool, model: str):
-    """Get LLM suggestions to improve project goals.
-
-    Uses local Ollama to analyze a project and suggest improvements.
-    Requires Ollama running locally (ollama serve).
-
-    \b
-    Examples:
-      cor refine my-project        # Analyze project
-      cor refine my-project -e     # Show prompt/response for debugging
-    """
-    from ..llm import refine_project
-
-    notes_dir = get_notes_dir()
-
-    project_path = notes_dir / f"{project}.md"
-    if not project_path.exists():
-        raise click.ClickException(f"Project not found: {project}")
-
-    content = project_path.read_text()
-    note = parse_note(project_path)
-    task_count = len(list(notes_dir.glob(f"{project_path.stem}.*.md")))
-
-    click.echo(click.style(f"\n═══ {note.title} ═══", bold=True))
-
-    prompt, response, error = refine_project(content, task_count, model)
-
-    if explain:
-        click.echo(click.style("\n[Prompt]", fg="cyan", dim=True))
-        click.echo(prompt)
-        click.echo()
-
-    if error:
-        click.echo(click.style(f"Error: {error}", fg="red"))
-        return
-
-    if explain:
-        click.echo(click.style("[Response]", fg="cyan", dim=True))
-
-    if response.strip():
-        click.echo(response.strip())
-    else:
-        click.echo(click.style("No suggestions - looks good!", fg="green"))
-
-    click.echo()
