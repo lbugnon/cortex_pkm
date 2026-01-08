@@ -15,11 +15,14 @@ from typing import Any
 import frontmatter
 
 from .schema import VALID_PRIORITY, VALID_PROJECT_STATUS, VALID_TASK_STATUS, STATUS_SYMBOLS
+from .core.links import LinkManager, LinkPatterns, is_external_link as is_external_link_core
+from .core.archive import ArchiveManager
+from .core.files import FileIterator, NoteFileManager
 
 
-# Compiled regex patterns
-LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
-EXTERNAL_PREFIXES = ('http://', 'https://', '#', 'mailto:')
+# Legacy compatibility - keeping old names for now
+LINK_PATTERN = LinkPatterns.LINK
+EXTERNAL_PREFIXES = LinkPatterns.EXTERNAL_PREFIXES
 
 
 @dataclass
@@ -42,7 +45,7 @@ class SyncResult:
 
 def is_external_link(target: str) -> bool:
     """Check if link target is external (URL, anchor, mailto)."""
-    return target.startswith(EXTERNAL_PREFIXES)
+    return is_external_link_core(target)
 
 
 def load_note(filepath: str | Path) -> frontmatter.Post | None:
@@ -147,6 +150,9 @@ def should_archive(filepath: str, meta: dict) -> bool:
     note_type = meta.get("type")
     status = meta.get("status")
 
+    # Use ArchiveManager logic
+    # Note: We need notes_dir for ArchiveManager, but for static function we keep old logic
+    # The instance methods in MaintenanceRunner will use ArchiveManager directly
     if note_type == "project" and status == "done":
         return True
     if note_type == "task" and (status == "done" or status == "dropped"):
@@ -284,6 +290,12 @@ class MaintenanceRunner:
         self.archive_dir = notes_dir / "archive"
         self.dry_run = dry_run
 
+        # Initialize new managers
+        self.link_mgr = LinkManager(notes_dir)
+        self.archive_mgr = ArchiveManager(notes_dir)
+        self.file_iter = FileIterator(notes_dir)
+        self.file_mgr = NoteFileManager(notes_dir)
+
     def find_file_in_notes(self, filename: str) -> Path | None:
         """Find a file in notes/ or notes/archive/."""
         path = self.notes_dir / filename
@@ -300,13 +312,7 @@ class MaintenanceRunner:
 
     def find_children_files(self, parent_name: str) -> list[Path]:
         """Find all children files of a parent (project or task group)."""
-        children = []
-        for directory in [self.notes_dir, self.archive_dir]:
-            if not directory.exists():
-                continue
-            for path in directory.glob(f"{parent_name}.*.md"):
-                children.append(path)
-        return children
+        return list(self.file_iter.iter_children(parent_name, include_archive=True))
 
     def get_incomplete_tasks(self, project_name: str) -> list[str]:
         """Find all tasks of a project that are not done or dropped."""
@@ -524,13 +530,7 @@ class MaintenanceRunner:
             path = Path(filepath)
 
             # Only process files in archive directory
-            is_in_archive = (
-                filepath.startswith("archive/") or
-                filepath.startswith("archive\\") or
-                str(self.archive_dir) in filepath or
-                (path.is_absolute() and self.archive_dir in path.parents)
-            )
-            if not is_in_archive:
+            if not self.archive_mgr.is_in_archive(filepath):
                 continue
 
             # Resolve the actual file path
@@ -582,12 +582,7 @@ class MaintenanceRunner:
             path = Path(filepath)
 
             # Skip files already in archive directory or templates
-            is_in_archive = (
-                filepath.startswith("archive/") or
-                filepath.startswith("archive\\") or
-                str(self.archive_dir) in filepath
-            )
-            if is_in_archive or "templates" in filepath:
+            if self.archive_mgr.is_in_archive(filepath) or "templates" in filepath:
                 continue
 
             # Skip special files
