@@ -31,6 +31,38 @@ PROJECT_COLORS = {
 STATUS_ORDER = {"blocked": 0, "active": 1, "waiting": 2, "todo": 3, "dropped": 4, "done": 5}
 
 
+def _extract_description(note) -> str | None:
+    """Extract text under ## Description section from note content.
+    
+    Returns first line or up to 80 chars of description text.
+    """
+    if not note.content:
+        return None
+    
+    lines = note.content.split("\n")
+    in_description = False
+    description_lines = []
+    
+    for line in lines:
+        if line.startswith("## Description"):
+            in_description = True
+            continue
+        if in_description:
+            if line.startswith("##"):  # Next section
+                break
+            stripped = line.strip()
+            if stripped:  # Non-empty line
+                description_lines.append(stripped)
+                break  # Take only first non-empty line
+    
+    if description_lines:
+        desc = description_lines[0]
+        if len(desc) > 80:
+            desc = desc[:77] + "..."
+        return desc
+    return None
+
+
 def _update_root_section(notes_dir, section: str, body: str) -> None:
     """Replace a section in root.md with new body content."""
     root_path = notes_dir / "root.md"
@@ -67,6 +99,7 @@ def show_tree(
     show_separators: bool = False,
     separator_transitions: list = None,
     capture: list | None = None,
+    verbose: bool = False,
 ):
     """
     Unified tree rendering function.
@@ -80,6 +113,7 @@ def show_tree(
         render_fn: Function(task) -> str to render task display (symbol + title)
         show_separators: Whether to show --- separators between status groups
         separator_transitions: List of (from_statuses, to_statuses) tuples for separators
+        verbose: Whether to show description text under tasks
     """
     if parent_name not in tasks_by_parent:
         return
@@ -133,6 +167,15 @@ def show_tree(
         click.echo(line)
         if capture is not None:
             capture.append(click.unstyle(line))
+        
+        # Show description if verbose
+        if verbose:
+            desc = _extract_description(task)
+            if desc:
+                desc_line = f"{child_prefix}    {click.style(desc, dim=True)}"
+                click.echo(desc_line)
+                if capture is not None:
+                    capture.append(click.unstyle(desc_line))
 
         # Recurse for children
         show_tree(
@@ -145,6 +188,7 @@ def show_tree(
             show_separators=show_separators,
             separator_transitions=separator_transitions,
             capture=capture,
+            verbose=verbose,
         )
 
         prev_status = task.status
@@ -160,7 +204,7 @@ def _group_by_project(tasks: list) -> dict:
     return groups
 
 
-def _print_section(title: str, tasks: list, color: str, formatter, limit: int, capture: list | None = None) -> bool:
+def _print_section(title: str, tasks: list, color: str, formatter, limit: int, capture: list | None = None, verbose: bool = False) -> bool:
     """Print section with tasks grouped by project. Returns True if printed."""
     if not tasks:
         return False
@@ -191,6 +235,16 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
             click.echo(line)
             if capture is not None:
                 capture.append(click.unstyle(line))
+            
+            # Show description if verbose
+            if verbose:
+                desc = _extract_description(task)
+                if desc:
+                    desc_line = f"      {click.style(desc, dim=True)}"
+                    click.echo(desc_line)
+                    if capture is not None:
+                        capture.append(click.unstyle(desc_line))
+            
             shown += 1
 
     remaining = len(tasks) - shown
@@ -202,8 +256,9 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
 @click.command(short_help="Prioritized daily view of tasks")
 @click.option("--limit", "-l", default=3, help="Max items per section (default: 3)")
 @click.option("--all", "-a", "show_all", is_flag=True, help="Show all items (no limit)")
+@click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
 @require_init
-def daily(limit: int, show_all: bool):
+def daily(limit: int, show_all: bool, verbose: bool):
     """Show what needs attention today.
 
     \b
@@ -214,6 +269,8 @@ def daily(limit: int, show_all: bool):
     - In progress (continue)
     - High priority ready
     - Suggested next (from active projects)
+    
+    Use -v/--verbose to show task descriptions.
     """
     notes_dir = get_notes_dir()
     root_lines: list[str] = []
@@ -254,6 +311,7 @@ def daily(limit: int, show_all: bool):
         format_overdue,
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in overdue[:limit or len(overdue)])
@@ -270,6 +328,7 @@ def daily(limit: int, show_all: bool):
         lambda n: f" ({format_time_ago(n.modified)} since update)" if n.modified else "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in waiting_stale[:limit or len(waiting_stale)])
@@ -288,6 +347,7 @@ def daily(limit: int, show_all: bool):
         lambda n: f" [{n.priority}]" if n.priority else "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in due_today[:limit or len(due_today)])
@@ -304,6 +364,7 @@ def daily(limit: int, show_all: bool):
         lambda n: f" ({format_time_ago(n.modified)})" if n.modified else "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in in_progress[:limit or len(in_progress)])
@@ -322,6 +383,7 @@ def daily(limit: int, show_all: bool):
         lambda n: "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in high_priority[:limit or len(high_priority)])
@@ -340,6 +402,7 @@ def daily(limit: int, show_all: bool):
         lambda n: "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
 
@@ -459,9 +522,10 @@ def projects(show_all: bool):
 
 @click.command()
 @click.option("--weeks", "-w", default=1, help="Number of weeks to look back (default: 1)")
+@click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
 @click.argument("projects", nargs=-1, shell_complete=complete_project)
 @require_init
-def weekly(weeks: int, projects: tuple):
+def weekly(weeks: int, verbose: bool, projects: tuple):
     """Show weekly summary in tree format.
 
     Without project filter: shows completed tasks grouped by project.
@@ -469,6 +533,8 @@ def weekly(weeks: int, projects: tuple):
 
     Optionally filter by one or more projects:
       cor weekly project-a project-b
+    
+    Use -v/--verbose to show task descriptions.
     """
     notes_dir = get_notes_dir()
 
@@ -595,6 +661,7 @@ def weekly(weeks: int, projects: tuple):
                 sort_fn=weekly_sort,
                 render_fn=weekly_render,
                 capture=capture_lines,
+                verbose=verbose,
             )
 
             # List high priority tasks separately if any
@@ -669,6 +736,7 @@ def weekly(weeks: int, projects: tuple):
             filter_fn=weekly_filter_completed,
             render_fn=weekly_render_completed,
             capture=capture_lines,
+            verbose=verbose,
         )
         emit()
 
@@ -677,9 +745,10 @@ def weekly(weeks: int, projects: tuple):
 
 
 @click.command(short_help="Show a project's task tree")
+@click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
 @click.argument("project", shell_complete=complete_project)
 @require_init
-def tree(project: str):
+def tree(verbose: bool, project: str):
     """Show task tree for a project.
 
     Displays tasks in a tree view with [x] or [ ] indicating status.
@@ -687,6 +756,7 @@ def tree(project: str):
     \b
     Example:
       cor tree myproject
+      cor tree myproject -v  # Show descriptions
     """
     notes_dir = get_notes_dir()
 
@@ -736,6 +806,7 @@ def tree(project: str):
             tasks_by_parent,
             sort_fn=sort_tasks,
             show_separators=True,
+            verbose=verbose,
         )
 
 
