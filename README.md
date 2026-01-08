@@ -140,7 +140,7 @@ tags: [coding, urgent]
 | `cor edit <name>` | Open existing file in editor (use `-a` to include archived) |
 | `cor mark <name> <status>` | Change task status (todo, active, blocked, done, dropped) |
 | `cor sync` | Pull, commit all changes, and push to remote |
-| `cor daily` | Show today's tasks and agenda |
+| `cor daily [tag]` | Show today's tasks; when `tag` is provided, only tasks matching the tag (by project name, task tags, or project tags) |
 | `cor weekly` | Show this week's summary |
 | `cor projects` | List active projects with status and last activity (from children) |
 | `cor tree <project>` | Show task tree for a project with status symbols |
@@ -276,6 +276,8 @@ This installs:
 Add to your `~/.zshrc` to enable Tab cycling through suggestions:
 
 ```zsh
+autoload -Uz compinit; compinit -i 
+
 # Enable Tab to cycle through completion matches (recommended)
 bindkey '^I' menu-complete
 bindkey '^[[Z' reverse-menu-complete  # Shift-Tab for reverse

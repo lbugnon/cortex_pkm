@@ -561,6 +561,77 @@ def edit(archived: bool, name: str):
     open_in_editor(file_path)
 
 
+@cli.command()
+@click.option("--archived", "-a", is_flag=True, help="Include archived files in search")
+@click.option("--delete", "-d", "delete_tags", is_flag=True, help="Remove provided tags instead of adding")
+@click.argument("name", shell_complete=complete_existing_name)
+@click.argument("tags", nargs=-1)
+@require_init
+def tag(archived: bool, delete_tags: bool, name: str, tags: tuple[str, ...]):
+    """Add or remove tags on a note.
+
+    Uses the same fuzzy search as `cor edit`.
+
+    Examples:
+      cor tag foundation_model ml research
+      cor tag -d foundation_model ml
+    """
+    from .fuzzy import resolve_file_fuzzy, get_file_path
+
+    if not tags:
+        raise click.ClickException("Provide at least one tag to add or remove.")
+
+    if name.startswith("archive/"):
+        name = name[8:]
+        archived = True
+
+    result = resolve_file_fuzzy(name, include_archived=archived)
+    if result is None:
+        return
+
+    stem, is_archived = result
+    file_path = get_file_path(stem, is_archived)
+
+    post = frontmatter.load(file_path)
+
+    existing = post.get("tags", [])
+    
+    if delete_tags:
+        new_tags = [t for t in existing if t not in tags]
+        if len(new_tags) == len(existing):
+            log_info("No matching tags to remove.")
+            return
+        summary = f"Removed tags from {stem}: {', '.join(sorted(set(existing) - set(new_tags)))}"
+    else:
+        to_add = [t for t in tags if t not in existing]
+        if not to_add:
+            log_info("Tags already up to date.")
+            return
+        new_tags = existing + to_add
+        summary = f"Added tags to {stem}: {', '.join(to_add)}"
+
+    post["tags"] = new_tags
+    post["modified"] = datetime.now().strftime(DATE_TIME)
+    with open(file_path, "wb") as f:
+        frontmatter.dump(post, f, sort_keys=False)
+
+    # Rewrite tag list in flow style: tags: [a, b]
+    # Avoid matching YAML frontmatter delimiters (---) by requiring a space after '-'
+    text = Path(file_path).read_text()
+    pattern = re.compile(r"(^tags:\s*\n(?:\s+-\s*[^\n]+\n)+)", re.MULTILINE)
+
+    def _inline_tags(match):
+        lines = match.group(0).splitlines()
+        values = [re.sub(r"^\s*-\s*", "", ln).strip() for ln in lines[1:]]
+        return f"tags: [{', '.join(values)}]\n"
+
+    new_text = pattern.sub(_inline_tags, text)
+    if new_text != text:
+        Path(file_path).write_text(new_text)
+
+    log_info(summary)
+
+
 @cli.command(name="delete")
 @click.option("--archived", "-a", is_flag=True, help="Include archived files in search")
 @click.argument("name", shell_complete=complete_existing_name)

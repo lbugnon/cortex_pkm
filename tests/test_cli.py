@@ -11,6 +11,7 @@ Tests cover:
 """
 
 import pytest
+import frontmatter
 from click.testing import CliRunner
 
 from cor.cli import cli
@@ -150,6 +151,28 @@ class TestNew:
 
         content = (initialized_vault / "myproj.meeting.md").read_text()
         assert "type: note" in content, "Note should have type: note"
+
+
+class TestTag:
+    """Test cor tag command."""
+
+    def test_tag_add_and_remove(self, runner, initialized_vault, monkeypatch):
+        """cor tag should add and remove tags on a file."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "tagproj", "--no_edit"])
+
+        add = runner.invoke(cli, ["tag", "tagproj", "ml", "research"])
+        assert add.exit_code == 0, f"Add tags failed: {add.output}"
+
+        post = frontmatter.load(initialized_vault / "tagproj.md")
+        assert post.get("tags") == ["ml", "research"]
+
+        remove = runner.invoke(cli, ["tag", "tagproj", "-d", "ml"])
+        assert remove.exit_code == 0, f"Remove tag failed: {remove.output}"
+
+        post = frontmatter.load(initialized_vault / "tagproj.md")
+        assert post.get("tags") == ["research"]
 
 
 class TestStatus:

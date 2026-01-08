@@ -257,8 +257,9 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
 @click.option("--limit", "-l", default=3, help="Max items per section (default: 3)")
 @click.option("--all", "-a", "show_all", is_flag=True, help="Show all items (no limit)")
 @click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
+@click.argument("tag", required=False, shell_complete=complete_project)
 @require_init
-def daily(limit: int, show_all: bool, verbose: bool):
+def daily(limit: int, show_all: bool, verbose: bool, tag: str | None):
     """Show what needs attention today.
 
     \b
@@ -271,6 +272,12 @@ def daily(limit: int, show_all: bool, verbose: bool):
     - Suggested next (from active projects)
     
     Use -v/--verbose to show task descriptions.
+
+    If a tag is provided (e.g., `cor daily foundation_model`), only tasks
+    matching the tag are shown. A task matches when:
+    - The task's parent project name equals the tag, or
+    - The task has the tag in its metadata, or
+    - Its parent project has the tag (project tags propagate to children).
     """
     notes_dir = get_notes_dir()
     root_lines: list[str] = []
@@ -283,8 +290,37 @@ def daily(limit: int, show_all: bool, verbose: bool):
         limit = 0  # 0 means no limit
 
     # Build set of active project names
-    active_projects = {n.path.stem for n in notes
-                       if n.note_type == "project" and n.status == "active"}
+    active_projects = {
+        n.path.stem for n in notes if n.note_type == "project" and n.status == "active"
+    }
+
+    # Build project -> tags mapping for propagation
+    project_tags: dict[str, set[str]] = {
+        n.path.stem: set(n.tags or []) for n in notes if n.note_type == "project"
+    }
+
+    def _matches_tag(note) -> bool:
+        """Return True if note matches provided tag filter.
+
+        Tag matches if:
+        - tag is None (no filtering)
+        - tag equals parent project name
+        - tag exists in note.tags
+        - tag exists in parent project's tags (propagated)
+        """
+        if not tag:
+            return True
+        parent = note.parent_project
+        if parent and tag == parent:
+            return True
+        if tag in (note.tags or []):
+            return True
+        if parent and tag in project_tags.get(parent, set()):
+            return True
+        return False
+
+    # Pre-filter tasks once (respects tag propagation)
+    tasks = [n for n in notes if n.note_type == "task" and _matches_tag(n)]
 
     # Track shown items to avoid duplicates
     shown_paths = set()
@@ -301,8 +337,7 @@ def daily(limit: int, show_all: bool, verbose: bool):
             return f" ({days}d overdue)"
 
     # 1. Overdue (tasks only, sorted by due date)
-    overdue = [n for n in notes
-               if n.is_overdue and n.note_type == "task"]
+    overdue = [n for n in tasks if n.is_overdue]
     overdue.sort(key=lambda n: n.due)
     if _print_section(
         "Overdue",
@@ -317,9 +352,7 @@ def daily(limit: int, show_all: bool, verbose: bool):
         shown_paths.update(n.path for n in overdue[:limit or len(overdue)])
 
     # 2. Waiting stale (waiting status + stale)
-    waiting_stale = [n for n in notes
-                     if n.status == "waiting" and n.is_stale
-                     and n.path not in shown_paths]
+    waiting_stale = [n for n in tasks if n.status == "waiting" and n.is_stale and n.path not in shown_paths]
     waiting_stale.sort(key=lambda n: n.modified or datetime.min)
     if _print_section(
         "Waiting (stale)",
@@ -334,10 +367,11 @@ def daily(limit: int, show_all: bool, verbose: bool):
         shown_paths.update(n.path for n in waiting_stale[:limit or len(waiting_stale)])
 
     # 3. Due today
-    due_today = [n for n in notes
-                 if n.due and n.due == today
-                 and n.status not in ("done", "dropped")
-                 and n.path not in shown_paths]
+    due_today = [
+        n
+        for n in tasks
+        if n.due and n.due == today and n.status not in ("done", "dropped") and n.path not in shown_paths
+    ]
     priority_order = {"high": 0, "medium": 1, "low": 2}
     due_today.sort(key=lambda n: priority_order.get(n.priority, 3))
     if _print_section(
@@ -353,9 +387,7 @@ def daily(limit: int, show_all: bool, verbose: bool):
         shown_paths.update(n.path for n in due_today[:limit or len(due_today)])
 
     # 4. In Progress (active tasks)
-    in_progress = [n for n in notes
-                   if n.status == "active" and n.note_type == "task"
-                   and n.path not in shown_paths]
+    in_progress = [n for n in tasks if n.status == "active" and n.path not in shown_paths]
     in_progress.sort(key=lambda n: n.modified or datetime.min)
     if _print_section(
         "In Progress",
@@ -370,11 +402,11 @@ def daily(limit: int, show_all: bool, verbose: bool):
         shown_paths.update(n.path for n in in_progress[:limit or len(in_progress)])
 
     # 5. High Priority Ready (high priority + todo)
-    high_priority = [n for n in notes
-                     if n.priority == "high"
-                     and n.status == "todo"
-                     and n.note_type == "task"
-                     and n.path not in shown_paths]
+    high_priority = [
+        n
+        for n in tasks
+        if n.priority == "high" and n.status == "todo" and n.path not in shown_paths
+    ]
     high_priority.sort(key=lambda n: n.created or datetime.min)
     if _print_section(
         "High Priority",
@@ -389,11 +421,11 @@ def daily(limit: int, show_all: bool, verbose: bool):
         shown_paths.update(n.path for n in high_priority[:limit or len(high_priority)])
 
     # 6. Suggested Next (todo tasks in active projects)
-    suggested = [n for n in notes
-                 if n.status == "todo"
-                 and n.note_type == "task"
-                 and n.path not in shown_paths
-                 and n.parent_project in active_projects]
+    suggested = [
+        n
+        for n in tasks
+        if n.status == "todo" and n.path not in shown_paths and n.parent_project in active_projects
+    ]
     suggested.sort(key=lambda n: n.modified or datetime.min)
     if _print_section(
         "Suggested Next",
