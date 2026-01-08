@@ -34,6 +34,7 @@ class SyncResult:
     links_updated: list[str] = field(default_factory=list)
     modified_dates_updated: list[str] = field(default_factory=list)
     deleted_links_removed: list[str] = field(default_factory=list)
+    dependencies_updated: list[str] = field(default_factory=list)
     errors: dict[str, list[str]] = field(default_factory=dict)
 
 
@@ -463,6 +464,21 @@ class MaintenanceRunner:
                             f"Cannot mark task-group as {status}. Incomplete tasks: {', '.join(incomplete)}"
                         )
 
+            # Validate dependencies (for tasks and projects)
+            if note_type in ("task", "project") and meta and meta.get("requires"):
+                from .parser import parse_note, find_notes
+                from .dependencies import validate_dependencies
+
+                note = parse_note(path)
+                if note:
+                    # Get all notes for validation
+                    all_notes = find_notes(self.notes_dir)
+                    if self.archive_dir.exists():
+                        all_notes.extend(find_notes(self.archive_dir))
+
+                    dep_errors = validate_dependencies(note, all_notes)
+                    errors.extend(dep_errors)
+
         return errors
 
     def update_modified_date(self, filepath: str) -> bool:
@@ -774,6 +790,75 @@ class MaintenanceRunner:
 
         return (str(parent_path), str(new_path))
 
+    def update_dependencies_on_rename(self, old_stem: str, new_stem: str) -> list[str]:
+        """Update requires fields when a task/project is renamed.
+
+        Args:
+            old_stem: Old task/project stem
+            new_stem: New task/project stem
+
+        Returns:
+            List of files that were updated
+        """
+        updated = []
+
+        # Find all notes that require the renamed note
+        for search_dir in [self.notes_dir, self.archive_dir]:
+            if not search_dir.exists():
+                continue
+
+            for note_path in search_dir.glob("*.md"):
+                post = load_note(note_path)
+                if not post:
+                    continue
+
+                requires = post.get("requires", [])
+                if old_stem in requires:
+                    # Update requirement
+                    new_requires = [new_stem if r == old_stem else r for r in requires]
+                    post["requires"] = new_requires
+
+                    if not self.dry_run:
+                        save_note(note_path, post)
+
+                    updated.append(str(note_path))
+
+        return updated
+
+    def remove_dependencies_on_delete(self, deleted_stem: str) -> list[str]:
+        """Remove requires references when a task/project is deleted.
+
+        Args:
+            deleted_stem: Stem of deleted task/project
+
+        Returns:
+            List of files that were updated
+        """
+        updated = []
+
+        # Find all notes that require the deleted note
+        for search_dir in [self.notes_dir, self.archive_dir]:
+            if not search_dir.exists():
+                continue
+
+            for note_path in search_dir.glob("*.md"):
+                post = load_note(note_path)
+                if not post:
+                    continue
+
+                requires = post.get("requires", [])
+                if deleted_stem in requires:
+                    # Remove requirement
+                    new_requires = [r for r in requires if r != deleted_stem]
+                    post["requires"] = new_requires
+
+                    if not self.dry_run:
+                        save_note(note_path, post)
+
+                    updated.append(str(note_path))
+
+        return updated
+
     def handle_renamed_files(self, renamed_files: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
         """Handle file renames by updating links in parent and children.
         
@@ -957,6 +1042,13 @@ class MaintenanceRunner:
                             if str(child_path) not in updated:
                                 updated.append(str(child_path))
 
+            # Update dependencies
+            if old_name != new_name:
+                updated_deps = self.update_dependencies_on_rename(old_name, new_name)
+                for dep_file in updated_deps:
+                    if dep_file not in updated:
+                        updated.append(dep_file)
+
         return updated, errors
 
     def handle_deleted_files(self, deleted_files: list[str]) -> list[str]:
@@ -988,6 +1080,12 @@ class MaintenanceRunner:
                     parent_path.write_text(new_content)
                 if str(parent_path) not in updated:
                     updated.append(str(parent_path))
+
+            # Remove dependencies
+            updated_deps = self.remove_dependencies_on_delete(deleted_name)
+            for dep_file in updated_deps:
+                if dep_file not in updated:
+                    updated.append(dep_file)
 
         return updated
 

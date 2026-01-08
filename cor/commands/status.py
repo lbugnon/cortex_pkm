@@ -33,16 +33,16 @@ STATUS_ORDER = {"blocked": 0, "active": 1, "waiting": 2, "todo": 3, "dropped": 4
 
 def _extract_description(note) -> str | None:
     """Extract text under ## Description section from note content.
-    
+
     Returns first line or up to 80 chars of description text.
     """
     if not note.content:
         return None
-    
+
     lines = note.content.split("\n")
     in_description = False
     description_lines = []
-    
+
     for line in lines:
         if line.startswith("## Description"):
             in_description = True
@@ -54,13 +54,69 @@ def _extract_description(note) -> str | None:
             if stripped:  # Non-empty line
                 description_lines.append(stripped)
                 break  # Take only first non-empty line
-    
+
     if description_lines:
         desc = description_lines[0]
         if len(desc) > 80:
             desc = desc[:77] + "..."
         return desc
     return None
+
+
+def _format_dependency_indicator(note, all_notes: list, verbose: bool = False) -> str:
+    """Format dependency indicator for display.
+
+    Args:
+        note: Task/project note
+        all_notes: All notes for dependency resolution
+        verbose: If True, show detailed info
+
+    Returns:
+        Formatted dependency string (empty if no dependencies)
+    """
+    if note.note_type not in ("task", "project") or not note.requires:
+        return ""
+
+    from ..dependencies import get_dependency_info
+
+    dep_info = get_dependency_info(note, all_notes)
+
+    if not verbose:
+        # Compact mode: just show indicator for unmet requirements
+        if dep_info.all_requirements_met:
+            return ""  # Don't show if all requirements met
+        else:
+            # Show arrow with count of unmet requirements
+            count = len(dep_info.blocked_by)
+            return click.style(f" [→{count}]", fg="yellow", dim=True)
+    else:
+        # Verbose mode: show details
+        lines = []
+
+        if dep_info.requires:
+            # Format requirement list with status colors
+            req_parts = []
+            for req_stem in dep_info.requires:
+                if req_stem in dep_info.blocked_by:
+                    # Unmet requirement - yellow
+                    req_parts.append(click.style(req_stem, fg="yellow"))
+                else:
+                    # Met requirement - green
+                    req_parts.append(click.style(req_stem, fg="green"))
+            requires_str = ", ".join(req_parts)
+            lines.append(f"→ Requires: {requires_str}")
+
+        if dep_info.blocks:
+            # Show what this blocks
+            blocks_str = ", ".join([click.style(b, fg="cyan") for b in dep_info.blocks])
+            lines.append(f"← Blocks: {blocks_str}")
+
+        if dep_info.missing_requirements:
+            # Warn about missing requirements
+            missing_str = ", ".join([click.style(m, fg="red") for m in dep_info.missing_requirements])
+            lines.append(f"⚠ Missing: {missing_str}")
+
+        return "\n".join(lines) if lines else ""
 
 
 def _update_root_section(notes_dir, section: str, body: str) -> None:
@@ -100,6 +156,7 @@ def show_tree(
     separator_transitions: list = None,
     capture: list | None = None,
     verbose: bool = False,
+    all_notes: list | None = None,
 ):
     """
     Unified tree rendering function.
@@ -114,6 +171,7 @@ def show_tree(
         show_separators: Whether to show --- separators between status groups
         separator_transitions: List of (from_statuses, to_statuses) tuples for separators
         verbose: Whether to show description text under tasks
+        all_notes: List of all notes for dependency resolution (optional)
     """
     if parent_name not in tasks_by_parent:
         return
@@ -163,11 +221,16 @@ def show_tree(
             color = TASK_COLORS.get(task.status, "white")
             task_display = f"{click.style(symbol, fg=color)} {task.title}"
 
+        # Add dependency indicator (compact mode)
+        if all_notes:
+            dep_indicator = _format_dependency_indicator(task, all_notes, verbose=False)
+            task_display += dep_indicator
+
         line = f"{prefix}{branch}{task_display}"
         click.echo(line)
         if capture is not None:
             capture.append(click.unstyle(line))
-        
+
         # Show description if verbose
         if verbose:
             desc = _extract_description(task)
@@ -176,6 +239,16 @@ def show_tree(
                 click.echo(desc_line)
                 if capture is not None:
                     capture.append(click.unstyle(desc_line))
+
+            # Show dependency details in verbose mode
+            if all_notes:
+                dep_details = _format_dependency_indicator(task, all_notes, verbose=True)
+                if dep_details:
+                    for detail_line in dep_details.split("\n"):
+                        styled_line = f"{child_prefix}    {click.style(detail_line, dim=True, fg='yellow')}"
+                        click.echo(styled_line)
+                        if capture is not None:
+                            capture.append(click.unstyle(styled_line))
 
         # Recurse for children
         show_tree(
@@ -189,6 +262,7 @@ def show_tree(
             separator_transitions=separator_transitions,
             capture=capture,
             verbose=verbose,
+            all_notes=all_notes,
         )
 
         prev_status = task.status
@@ -694,6 +768,7 @@ def weekly(weeks: int, verbose: bool, projects: tuple):
                 render_fn=weekly_render,
                 capture=capture_lines,
                 verbose=verbose,
+                all_notes=notes,
             )
 
             # List high priority tasks separately if any
@@ -769,6 +844,7 @@ def weekly(weeks: int, verbose: bool, projects: tuple):
             render_fn=weekly_render_completed,
             capture=capture_lines,
             verbose=verbose,
+            all_notes=notes,
         )
         emit()
 
@@ -826,6 +902,13 @@ def tree(verbose: bool, project: str):
     click.echo(click.style(f"\n{project_note.title}", fg=color, bold=True))
     click.echo(click.style(f"({project_note.status or 'no status'})", dim=True))
 
+    # Show project dependencies if any
+    if project_note.requires:
+        dep_details = _format_dependency_indicator(project_note, notes, verbose=True)
+        if dep_details:
+            for detail_line in dep_details.split("\n"):
+                click.echo(click.style(f"  {detail_line}", dim=True, fg='yellow'))
+
     if project not in tasks_by_parent:
         click.echo("  No tasks found.")
     else:
@@ -839,6 +922,7 @@ def tree(verbose: bool, project: str):
             sort_fn=sort_tasks,
             show_separators=True,
             verbose=verbose,
+            all_notes=notes,
         )
 
 

@@ -42,6 +42,12 @@ project:
       paused    - Temporarily on hold
       done  - Done, goals achieved
 
+  requires:
+    type: list
+    items: string
+    description: List of task/project stems this project requires (soft dependencies)
+    optional: true
+
 task:
   type:
     type: const
@@ -58,6 +64,12 @@ task:
       done    - Completed
       dropped - Cancelled/abandoned
       waiting - Active but external (someone/something else work)
+
+  requires:
+    type: list
+    items: string
+    description: List of task/project stems this task requires (soft dependencies)
+    optional: true
 note:
   type:
     type: const

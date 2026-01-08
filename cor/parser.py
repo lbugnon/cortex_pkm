@@ -22,6 +22,7 @@ class Note:
     priority: Optional[str]
     note_type: str  # project, task, note
     tags: list[str]
+    requires: list[str]  # Task/project stems this note requires (soft dependencies)
     content: str
 
     @property
@@ -100,6 +101,7 @@ def parse_note(path: Path) -> Note:
         priority=meta.get("priority"),
         note_type=meta.get("type"),
         tags=meta.get("tags", []),
+        requires=meta.get("requires", []),
         content=post.content,
     )
 
