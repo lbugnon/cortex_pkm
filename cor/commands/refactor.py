@@ -6,7 +6,7 @@ import shutil
 import click
 
 from ..completions import complete_existing_name, complete_group_project, complete_project_tasks, complete_new_parent
-from ..parser import parse_note
+from ..core.notes import parse_note
 from ..utils import (
     get_notes_dir,
     get_template,
@@ -43,7 +43,7 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     - Use -a to include archived files.
     - Use --dry-run to preview changes.
     """
-    from ..fuzzy import resolve_file_fuzzy, get_file_path
+    from ..search import resolve_file_fuzzy, get_file_path
 
     notes_dir = get_notes_dir()
     archive_dir = notes_dir / "archive"
@@ -191,7 +191,7 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
         log_verbose(f"  {old_path} → {new_path}")
 
     # Handle parent changes and link updates using maintenance infrastructure
-    from ..maintenance import MaintenanceRunner
+    from ..sync import MaintenanceRunner
     runner = MaintenanceRunner(notes_dir, dry_run=False)
     
     # Prepare list of renames for handle_renamed_files (relative paths)

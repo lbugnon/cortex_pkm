@@ -14,12 +14,10 @@ from typing import Any
 
 import frontmatter
 
-from .schema import VALID_PRIORITY, VALID_PROJECT_STATUS, VALID_TASK_STATUS, STATUS_SYMBOLS
-
-
-# Compiled regex patterns
-LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
-EXTERNAL_PREFIXES = ('http://', 'https://', '#', 'mailto:')
+from ..schema import VALID_PRIORITY, VALID_PROJECT_STATUS, VALID_TASK_STATUS, STATUS_SYMBOLS
+from ..core.links import LinkManager, LinkPatterns, is_external_link as is_external_link_core
+from ..core.archive import ArchiveManager
+from ..core.files import FileIterator, NoteFileManager
 
 
 @dataclass
@@ -40,9 +38,6 @@ class SyncResult:
 
 # --- Static helper functions ---
 
-def is_external_link(target: str) -> bool:
-    """Check if link target is external (URL, anchor, mailto)."""
-    return target.startswith(EXTERNAL_PREFIXES)
 
 
 def load_note(filepath: str | Path) -> frontmatter.Post | None:
@@ -115,7 +110,7 @@ def add_field_after(filepath: str | Path, field: str, value: Any, after_field: s
 
 def get_parent_name(filepath: str) -> str | None:
     """Extract parent name from filename (project.group.task -> project.group)."""
-    from .utils import get_parent_name as _get_parent_name
+    from ..utils import get_parent_name as _get_parent_name
     return _get_parent_name(Path(filepath).stem)
 
 
@@ -147,6 +142,8 @@ def should_archive(filepath: str, meta: dict) -> bool:
     note_type = meta.get("type")
     status = meta.get("status")
 
+    # Use ArchiveManager logic
+    # The instance methods in MaintenanceRunner will use ArchiveManager directly
     if note_type == "project" and status == "done":
         return True
     if note_type == "task" and (status == "done" or status == "dropped"):
@@ -183,10 +180,10 @@ def get_title_from_file(filepath: str | Path) -> str:
                 return line[2:].strip()
         
         # Fall back to formatted filename
-        from .utils import format_title
+        from ..utils import format_title
         return format_title(path.stem)
     except Exception:
-        from .utils import format_title
+        from ..utils import format_title
         return format_title(path.stem)
 
 
@@ -254,10 +251,10 @@ def validate_links(filepath: str, notes_dir: Path) -> list[str]:
     if (notes_dir / "archive") in path.parents:
         base_dir = notes_dir / "archive"
 
-    for match in LINK_PATTERN.finditer(content):
+    for match in LinkPatterns.LINK.finditer(content):
         link_text, target = match.groups()
 
-        if is_external_link(target):
+        if is_external_link_core(target):
             continue
         # Build target absolute path - handle relative paths correctly
         # If the link starts with ../, resolve it relative to the file's directory
@@ -284,6 +281,12 @@ class MaintenanceRunner:
         self.archive_dir = notes_dir / "archive"
         self.dry_run = dry_run
 
+        # Initialize new managers
+        self.link_mgr = LinkManager(notes_dir)
+        self.archive_mgr = ArchiveManager(notes_dir)
+        self.file_iter = FileIterator(notes_dir)
+        self.file_mgr = NoteFileManager(notes_dir)
+
     def find_file_in_notes(self, filename: str) -> Path | None:
         """Find a file in notes/ or notes/archive/."""
         path = self.notes_dir / filename
@@ -300,13 +303,7 @@ class MaintenanceRunner:
 
     def find_children_files(self, parent_name: str) -> list[Path]:
         """Find all children files of a parent (project or task group)."""
-        children = []
-        for directory in [self.notes_dir, self.archive_dir]:
-            if not directory.exists():
-                continue
-            for path in directory.glob(f"{parent_name}.*.md"):
-                children.append(path)
-        return children
+        return list(self.file_iter.iter_children(parent_name, include_archive=True))
 
     def get_incomplete_tasks(self, project_name: str) -> list[str]:
         """Find all tasks of a project that are not done or dropped."""
@@ -466,15 +463,15 @@ class MaintenanceRunner:
 
             # Validate dependencies (for tasks and projects)
             if note_type in ("task", "project") and meta and meta.get("requires"):
-                from .parser import parse_note, find_notes
-                from .dependencies import validate_dependencies
+                from ..core.notes import parse_metadata, find_notes
+                from ..dependencies import validate_dependencies
 
-                note = parse_note(path)
+                note = parse_metadata(path)
                 if note:
-                    # Get all notes for validation
-                    all_notes = find_notes(self.notes_dir)
+                    # Get all notes for validation (metadata only - faster)
+                    all_notes = find_notes(self.notes_dir, metadata_only=True)
                     if self.archive_dir.exists():
-                        all_notes.extend(find_notes(self.archive_dir))
+                        all_notes.extend(find_notes(self.archive_dir, metadata_only=True))
 
                     dep_errors = validate_dependencies(note, all_notes)
                     errors.extend(dep_errors)
@@ -524,13 +521,7 @@ class MaintenanceRunner:
             path = Path(filepath)
 
             # Only process files in archive directory
-            is_in_archive = (
-                filepath.startswith("archive/") or
-                filepath.startswith("archive\\") or
-                str(self.archive_dir) in filepath or
-                (path.is_absolute() and self.archive_dir in path.parents)
-            )
-            if not is_in_archive:
+            if not self.archive_mgr.is_in_archive(filepath):
                 continue
 
             # Resolve the actual file path
@@ -582,12 +573,7 @@ class MaintenanceRunner:
             path = Path(filepath)
 
             # Skip files already in archive directory or templates
-            is_in_archive = (
-                filepath.startswith("archive/") or
-                filepath.startswith("archive\\") or
-                str(self.archive_dir) in filepath
-            )
-            if is_in_archive or "templates" in filepath:
+            if self.archive_mgr.is_in_archive(filepath) or "templates" in filepath:
                 continue
 
             # Skip special files
@@ -644,7 +630,7 @@ class MaintenanceRunner:
                 target = match.group(2)
                 suffix = match.group(3)
 
-                if is_external_link(target) or target.startswith('../'):
+                if is_external_link_core(target) or target.startswith('../'):
                     return match.group(0)
 
                 target_name = target.rstrip('.md')
@@ -927,7 +913,7 @@ class MaintenanceRunner:
                     if renamed_file_path.exists():
                         meta = get_frontmatter(str(renamed_file_path))
                         if meta:
-                            from .schema import get_status_symbol
+                            from ..schema import get_status_symbol
                             
                             task_status = meta.get('status', 'todo')
                             # Get actual title from file

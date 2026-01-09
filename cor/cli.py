@@ -16,8 +16,8 @@ from .commands import daily, projects, weekly, tree, review, rename, group, proc
 from .commands.dependencies import depend
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
 from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity
-from .maintenance import MaintenanceRunner
-from .parser import parse_note
+from .sync import MaintenanceRunner
+from .core.notes import parse_metadata
 from .schema import STATUS_SYMBOLS, VALID_TASK_STATUS, DATE_TIME
 from .utils import (
     get_notes_dir,
@@ -544,7 +544,7 @@ def edit(archived: bool, name: str):
       cor edit foundation       # Interactive picker if multiple matches
       cor edit -a old-project   # Include archived files
     """
-    from .fuzzy import resolve_file_fuzzy, get_file_path
+    from .search import resolve_file_fuzzy, get_file_path
 
     # Handle "archive/" prefix if present (from tab completion)
     if name.startswith("archive/"):
@@ -577,7 +577,7 @@ def tag(archived: bool, delete_tags: bool, name: str, tags: tuple[str, ...]):
       cor tag foundation_model ml research
       cor tag -d foundation_model ml
     """
-    from .fuzzy import resolve_file_fuzzy, get_file_path
+    from .search import resolve_file_fuzzy, get_file_path
 
     if not tags:
         raise click.ClickException("Provide at least one tag to add or remove.")
@@ -647,7 +647,7 @@ def delete(archived: bool, name: str):
         cor delete my-proj                  # Fuzzy matches 'my-project'
         cor delete -a old-project           # Include archived files
     """
-    from .fuzzy import resolve_file_fuzzy, get_file_path
+    from .search import resolve_file_fuzzy, get_file_path
 
     notes_dir = get_notes_dir()
 
@@ -798,7 +798,7 @@ def mark(name: str, status: str):
       cor mark impl active          # Fuzzy matches 'implement-api'
       cor mark my-project.research done
     """
-    from .fuzzy import resolve_file_fuzzy, get_file_path
+    from .search import resolve_file_fuzzy, get_file_path
 
     notes_dir = get_notes_dir()
 
@@ -811,8 +811,8 @@ def mark(name: str, status: str):
     stem, _ = result
     file_path = notes_dir / f"{stem}.md"
 
-    # Validate it's a task
-    note = parse_note(file_path)
+    # Validate it's a task (metadata only - faster)
+    note = parse_metadata(file_path)
 
     if not note:
         raise click.ClickException(f"Could not parse file: {file_path}")

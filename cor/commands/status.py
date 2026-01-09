@@ -6,7 +6,7 @@ import re
 import click
 
 from ..completions import complete_project
-from ..parser import find_notes
+from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
 from ..utils import get_notes_dir, format_time_ago, require_init, format_title
 
@@ -327,6 +327,27 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
     return True
 
 
+
+def _matches_tag(note, tag, project_tags) -> bool:
+    """Return True if note matches provided tag filter.
+
+    Tag matches if:
+    - tag is None (no filtering)
+    - tag equals parent project name
+    - tag exists in note.tags
+    - tag exists in parent project's tags (propagated)
+    """
+    if not tag:
+        return True
+    parent = note.parent_project
+    if parent and tag == parent:
+        return True
+    if tag in (note.tags or []):
+        return True
+    if parent and tag in project_tags.get(parent, set()):
+        return True
+    return False
+
 @click.command(short_help="Prioritized daily view of tasks")
 @click.option("--limit", "-l", default=3, help="Max items per section (default: 3)")
 @click.option("--all", "-a", "show_all", is_flag=True, help="Show all items (no limit)")
@@ -373,28 +394,8 @@ def daily(limit: int, show_all: bool, verbose: bool, tag: str | None):
         n.path.stem: set(n.tags or []) for n in notes if n.note_type == "project"
     }
 
-    def _matches_tag(note) -> bool:
-        """Return True if note matches provided tag filter.
-
-        Tag matches if:
-        - tag is None (no filtering)
-        - tag equals parent project name
-        - tag exists in note.tags
-        - tag exists in parent project's tags (propagated)
-        """
-        if not tag:
-            return True
-        parent = note.parent_project
-        if parent and tag == parent:
-            return True
-        if tag in (note.tags or []):
-            return True
-        if parent and tag in project_tags.get(parent, set()):
-            return True
-        return False
-
     # Pre-filter tasks once (respects tag propagation)
-    tasks = [n for n in notes if n.note_type == "task" and _matches_tag(n)]
+    tasks = [n for n in notes if n.note_type == "task" and _matches_tag(n, tag, project_tags)]
 
     # Track shown items to avoid duplicates
     shown_paths = set()
@@ -629,17 +630,22 @@ def projects(show_all: bool):
 @click.command()
 @click.option("--weeks", "-w", default=1, help="Number of weeks to look back (default: 1)")
 @click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
-@click.argument("projects", nargs=-1, shell_complete=complete_project)
+@click.argument("tag", required=False, shell_complete=complete_project)
 @require_init
-def weekly(weeks: int, verbose: bool, projects: tuple):
+def weekly(weeks: int, verbose: bool, tag: str | None):
     """Show weekly summary in tree format.
 
-    Without project filter: shows completed tasks grouped by project.
-    With project filter: shows full project tree (except TODO), ordered by status.
+    Without tag filter: shows completed tasks grouped by project.
+    With tag filter: shows full project tree (except TODO), ordered by status.
 
-    Optionally filter by one or more projects:
-      cor weekly project-a project-b
+    Optionally filter by tag (project name or metadata tag):
+      cor weekly foundation_model
     
+    A task matches when:
+    - The task's parent project name equals the tag, or
+    - The task has the tag in its metadata, or
+    - Its parent project has the tag (project tags propagate to children).
+
     Use -v/--verbose to show task descriptions.
     """
     notes_dir = get_notes_dir()
@@ -658,8 +664,13 @@ def weekly(weeks: int, verbose: bool, projects: tuple):
     if archive_dir.exists():
         notes.extend(find_notes(archive_dir))
 
-    # Filter by projects if specified
-    project_filter = set(projects) if projects else None
+    # Build project -> tags mapping for propagation
+    project_tags: dict[str, set[str]] = {
+        n.path.stem: set(n.tags or []) for n in notes if n.note_type == "project"
+    }
+
+    # Filter by tags if specified
+    project_filter = {tag} if tag else None
 
     # Build project data and task hierarchy
     # project_name -> {done: int, active: int, total: int, high_priority: [tasks]}
@@ -670,6 +681,10 @@ def weekly(weeks: int, verbose: bool, projects: tuple):
 
     for n in notes:
         if n.note_type != "task":
+            continue
+
+        # Skip tasks that don't match the tag filter
+        if not _matches_tag(n, tag, project_tags):
             continue
 
         project = n.parent_project or n.path.stem
@@ -713,8 +728,8 @@ def weekly(weeks: int, verbose: bool, projects: tuple):
     else:
         header = f"Past {weeks} weeks ({week_start} to {week_end})"
 
-    if project_filter:
-        header += f" [{', '.join(sorted(format_title(p) for p in project_filter))}]"
+    if tag:
+        header += f" [{format_title(tag)}]"
 
     capture_lines: list[str] = []
 
@@ -728,14 +743,22 @@ def weekly(weeks: int, verbose: bool, projects: tuple):
     if project_filter:
         for project_name in sorted(project_filter):
             display_project = format_title(project_name)
-            if project_name not in tasks_by_parent and project_name not in project_data:
-                emit(click.style(f"\nProject '{display_project}' not found or has no tasks.", dim=True))
+            # When filtering by tag, show projects/tasks that match the tag
+            matching_tasks = [t for t in all_tasks.values() if _matches_tag(t, tag, project_tags)]
+            matching_projects = set()
+            for t in matching_tasks:
+                if t.parent_project:
+                    matching_projects.add(t.parent_project)
+            
+            if project_name not in matching_projects and project_name not in [t.path.stem for t in matching_tasks if t.parent_project == project_name]:
+                emit(click.style(f"\nProject '{display_project}' not found or has no matching tasks.", dim=True))
                 continue
 
-            stats = project_data.get(project_name, {"done": 0, "active": 0, "total": 0, "high_priority": []})
-            done_count = stats["done"]
-            active_count = stats["active"]
-            total_count = stats["total"]
+            # Only count matching tasks for this project/tag
+            matching_for_project = [t for t in matching_tasks if t.parent_project == project_name or (not t.parent_project and t.path.stem.startswith(project_name))]
+            done_count = sum(1 for t in matching_for_project if t.status in ("done", "dropped"))
+            active_count = sum(1 for t in matching_for_project if t.status in ("active", "waiting"))
+            total_count = len(matching_for_project)
 
             # Project header with counters
             is_project_done = done_count == total_count and total_count > 0
@@ -772,7 +795,7 @@ def weekly(weeks: int, verbose: bool, projects: tuple):
             )
 
             # List high priority tasks separately if any
-            high_priority = stats["high_priority"]
+            high_priority = [t for t in matching_for_project if t.priority == "high" and t.status not in ("done", "dropped")]
             if high_priority:
                 emit()
                 emit(click.style("  ⚡ High Priority:", fg="magenta", bold=True))

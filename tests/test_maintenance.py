@@ -2,15 +2,15 @@
 
 import pytest
 
-from cor.maintenance import (
+from cor.sync.runner import (
     MaintenanceRunner,
     SyncResult,
     get_frontmatter,
     get_parent_name,
     should_archive,
     should_unarchive,
-    is_external_link,
 )
+from cor.core.links import is_external_link
 
 
 # --- Fixtures ---

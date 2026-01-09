@@ -12,6 +12,7 @@ from .utils import (
     get_project_tasks,
     get_all_notes,
 )
+from .search.completion import complete_files_with_fuzzy, complete_filtered_with_fuzzy
 
 
 def complete_name(ctx, param, incomplete: str) -> list:
@@ -76,7 +77,6 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
     if not notes_dir.exists():
         return []
 
-    completions = []
     archive_dir = notes_dir / "archive"
 
     # Check if -a/--archived flag is set
@@ -86,47 +86,30 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
     is_archive_path = incomplete.startswith("archive/")
     search_stem = incomplete[8:] if is_archive_path else incomplete
 
-    # Get all note files from main directory
+    # Collect file stems
+    file_stems = []
+    archived_stems = []
+
     if not is_archive_path:
         for path in notes_dir.glob("*.md"):
             if path.stem not in ("root", "backlog") and not path.name.startswith("."):
-                if not search_stem or path.stem.startswith(search_stem):
-                    completions.append(CompletionItem(path.stem))
+                file_stems.append(path.stem)
 
-    # Also include archived files only if -a flag is set or user typed "archive/"
     if (include_archived or is_archive_path) and archive_dir.exists():
         for path in archive_dir.glob("*.md"):
-            if not search_stem or path.stem.startswith(search_stem):
-                completions.append(CompletionItem(f"archive/{path.stem}", help="(archived)"))
+            archived_stems.append(path.stem)
 
-    # Fuzzy fallback: if no prefix matches and user typed 2+ chars, try fuzzy
-    if not completions and len(search_stem) >= 2:
-        from .fuzzy import fuzzy_match, get_all_file_stems
+    # Use consolidated completion logic
+    from .search import fuzzy_match
 
-        candidates = get_all_file_stems(include_archived=include_archived)
-        fuzzy_results = fuzzy_match(search_stem, candidates, limit=5, score_cutoff=50)
-        
-        # For shell completion, only show results within 10 points of the top score
-        # This helps the shell find a common prefix for autocomplete
-        if fuzzy_results:
-            top_score = fuzzy_results[0][2]
-            fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
-            # Collapse 100%-score ties to shortest unless disabled (default disabled)
-            collapse_100 = os.environ.get("COR_COMPLETE_COLLAPSE_100", "0").lower() not in {"0", "false", "no"}
-            if collapse_100 and top_score == 100:
-                top_ties = [r for r in fuzzy_results if r[2] == top_score]
-                if len(top_ties) > 1:
-                    fuzzy_results = [fuzzy_results[0]]
-        
-        for stem, is_archived, score in fuzzy_results:
-            if is_archived:
-                completions.append(
-                    CompletionItem(f"archive/{stem}", help=f"(fuzzy {score}%)")
-                )
-            else:
-                completions.append(CompletionItem(stem, help=f"(fuzzy {score}%)"))
-
-    return completions
+    return complete_files_with_fuzzy(
+        search_stem=search_stem,
+        file_stems=file_stems,
+        archived_stems=archived_stems,
+        fuzzy_match_fn=fuzzy_match,
+        is_archive_path=is_archive_path,
+        include_archived=include_archived
+    )
 
 
 def complete_group_project(ctx, param, incomplete: str) -> list:
@@ -164,8 +147,8 @@ def complete_project_tasks(ctx, param, incomplete: str) -> list:
 
 def complete_task_name(ctx, param, incomplete: str) -> list:
     """Shell completion for task names (type: task in frontmatter)."""
-    from .parser import parse_note
-    from .fuzzy import fuzzy_match
+    from .core.notes import parse_metadata
+    from .search import fuzzy_match
 
     notes_dir = get_notes_dir()
     if not notes_dir.exists():
@@ -173,40 +156,20 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
 
     tasks = []
 
-    # Collect all task file stems
+    # Collect all task file stems (metadata only - faster)
     for path in notes_dir.glob("*.md"):
         if path.stem in ("root", "backlog"):
             continue
-        note = parse_note(path)
+        note = parse_metadata(path)
         if note and note.note_type == "task":
             tasks.append(path.stem)
 
-    # Prefix matches first
-    prefix_matches = [
-        CompletionItem(stem)
-        for stem in tasks
-        if not incomplete or stem.startswith(incomplete)
-    ]
-
-    # If we found prefix matches or the input is too short, return
-    if prefix_matches or len(incomplete) < 2:
-        return prefix_matches
-
-    # Fuzzy fallback: use new fuzzy sorter (score desc, length asc) and filter near top
-    candidates = [(stem, False) for stem in tasks]
-    fuzzy_results = fuzzy_match(incomplete, candidates, limit=5, score_cutoff=50)
-
-    if fuzzy_results:
-        top_score = fuzzy_results[0][2]
-        fuzzy_results = [r for r in fuzzy_results if r[2] >= top_score - 10]
-        # Collapse 100%-score ties to shortest unless disabled (default disabled)
-        collapse_100 = os.environ.get("COR_COMPLETE_COLLAPSE_100", "0").lower() not in {"0", "false", "no"}
-        if collapse_100 and top_score == 100:
-            top_ties = [r for r in fuzzy_results if r[2] == top_score]
-            if len(top_ties) > 1:
-                fuzzy_results = [fuzzy_results[0]]
-
-    return [CompletionItem(stem, help=f"(fuzzy {score}%)") for stem, _, score in fuzzy_results]
+    # Use consolidated completion logic
+    return complete_filtered_with_fuzzy(
+        search_stem=incomplete,
+        items=tasks,
+        fuzzy_match_fn=fuzzy_match
+    )
 
 
 def complete_task_status(ctx, param, incomplete: str) -> list:

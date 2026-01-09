@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .parser import Note
+from .core.notes import NoteMetadata
 
 
 @dataclass
@@ -21,7 +21,7 @@ class DependencyInfo:
     circular_dependencies: list[str]  # Circular dependency chain if detected
 
 
-def calculate_inverse_dependencies(notes: list[Note]) -> dict[str, list[str]]:
+def calculate_inverse_dependencies(notes: list[NoteMetadata]) -> dict[str, list[str]]:
     """Calculate inverse dependency mapping (note -> notes that require it).
 
     Args:
@@ -47,7 +47,7 @@ def calculate_inverse_dependencies(notes: list[Note]) -> dict[str, list[str]]:
     return inverse
 
 
-def check_dependencies_met(note: Note, all_notes: list[Note]) -> tuple[bool, list[str]]:
+def check_dependencies_met(note: NoteMetadata, all_notes: list[NoteMetadata]) -> tuple[bool, list[str]]:
     """Check if all requirements for a note are met.
 
     Args:
@@ -85,7 +85,7 @@ def check_dependencies_met(note: Note, all_notes: list[Note]) -> tuple[bool, lis
     return len(unmet) == 0, unmet
 
 
-def detect_circular_dependencies(note_stem: str, all_notes: list[Note]) -> Optional[list[str]]:
+def detect_circular_dependencies(note_stem: str, all_notes: list[NoteMetadata]) -> Optional[list[str]]:
     """Detect if note is part of a circular dependency chain.
 
     Args:
@@ -123,7 +123,7 @@ def detect_circular_dependencies(note_stem: str, all_notes: list[Note]) -> Optio
     return dfs(note_stem, [], set())
 
 
-def validate_dependencies(note: Note, all_notes: list[Note]) -> list[str]:
+def validate_dependencies(note: NoteMetadata, all_notes: list[NoteMetadata]) -> list[str]:
     """Validate note dependencies.
 
     Args:
@@ -159,7 +159,7 @@ def validate_dependencies(note: Note, all_notes: list[Note]) -> list[str]:
     return errors
 
 
-def get_dependency_info(note: Note, all_notes: list[Note]) -> DependencyInfo:
+def get_dependency_info(note: NoteMetadata, all_notes: list[NoteMetadata]) -> DependencyInfo:
     """Get comprehensive dependency information for a note.
 
     Args:
