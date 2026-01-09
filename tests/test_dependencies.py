@@ -22,7 +22,7 @@ from cor.dependencies import (
     validate_dependencies,
     get_dependency_info,
 )
-from cor.parser import parse_note, find_notes
+from cor.core.notes import parse_note, find_notes
 
 
 @pytest.fixture

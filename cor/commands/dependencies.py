@@ -7,8 +7,8 @@ import frontmatter
 
 from ..completions import complete_task_name
 from ..dependencies import get_dependency_info, validate_dependencies
-from ..fuzzy import resolve_file_fuzzy, get_file_path
-from ..parser import find_notes, parse_note
+from ..search import resolve_file_fuzzy, get_file_path
+from ..core.notes import find_notes, parse_note
 from ..schema import DATE_TIME
 from ..utils import get_notes_dir, require_init, log_info
 

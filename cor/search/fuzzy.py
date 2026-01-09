@@ -8,7 +8,7 @@ import click
 from rapidfuzz import fuzz, process
 from simple_term_menu import TerminalMenu
 
-from .utils import get_notes_dir
+from ..utils import get_notes_dir
 
 
 def get_all_file_stems(include_archived: bool = False) -> list[tuple[str, bool]]:

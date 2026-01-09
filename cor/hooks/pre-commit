@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Add repo root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from cor.maintenance import MaintenanceRunner
+from cor.sync import MaintenanceRunner
 from cor.config import get_vault_path
 
 

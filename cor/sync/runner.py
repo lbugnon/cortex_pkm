@@ -14,15 +14,10 @@ from typing import Any
 
 import frontmatter
 
-from .schema import VALID_PRIORITY, VALID_PROJECT_STATUS, VALID_TASK_STATUS, STATUS_SYMBOLS
-from .core.links import LinkManager, LinkPatterns, is_external_link as is_external_link_core
-from .core.archive import ArchiveManager
-from .core.files import FileIterator, NoteFileManager
-
-
-# Legacy compatibility - keeping old names for now
-LINK_PATTERN = LinkPatterns.LINK
-EXTERNAL_PREFIXES = LinkPatterns.EXTERNAL_PREFIXES
+from ..schema import VALID_PRIORITY, VALID_PROJECT_STATUS, VALID_TASK_STATUS, STATUS_SYMBOLS
+from ..core.links import LinkManager, LinkPatterns, is_external_link as is_external_link_core
+from ..core.archive import ArchiveManager
+from ..core.files import FileIterator, NoteFileManager
 
 
 @dataclass
@@ -43,9 +38,6 @@ class SyncResult:
 
 # --- Static helper functions ---
 
-def is_external_link(target: str) -> bool:
-    """Check if link target is external (URL, anchor, mailto)."""
-    return is_external_link_core(target)
 
 
 def load_note(filepath: str | Path) -> frontmatter.Post | None:
@@ -118,7 +110,7 @@ def add_field_after(filepath: str | Path, field: str, value: Any, after_field: s
 
 def get_parent_name(filepath: str) -> str | None:
     """Extract parent name from filename (project.group.task -> project.group)."""
-    from .utils import get_parent_name as _get_parent_name
+    from ..utils import get_parent_name as _get_parent_name
     return _get_parent_name(Path(filepath).stem)
 
 
@@ -151,7 +143,6 @@ def should_archive(filepath: str, meta: dict) -> bool:
     status = meta.get("status")
 
     # Use ArchiveManager logic
-    # Note: We need notes_dir for ArchiveManager, but for static function we keep old logic
     # The instance methods in MaintenanceRunner will use ArchiveManager directly
     if note_type == "project" and status == "done":
         return True
@@ -189,10 +180,10 @@ def get_title_from_file(filepath: str | Path) -> str:
                 return line[2:].strip()
         
         # Fall back to formatted filename
-        from .utils import format_title
+        from ..utils import format_title
         return format_title(path.stem)
     except Exception:
-        from .utils import format_title
+        from ..utils import format_title
         return format_title(path.stem)
 
 
@@ -260,10 +251,10 @@ def validate_links(filepath: str, notes_dir: Path) -> list[str]:
     if (notes_dir / "archive") in path.parents:
         base_dir = notes_dir / "archive"
 
-    for match in LINK_PATTERN.finditer(content):
+    for match in LinkPatterns.LINK.finditer(content):
         link_text, target = match.groups()
 
-        if is_external_link(target):
+        if is_external_link_core(target):
             continue
         # Build target absolute path - handle relative paths correctly
         # If the link starts with ../, resolve it relative to the file's directory
@@ -472,15 +463,15 @@ class MaintenanceRunner:
 
             # Validate dependencies (for tasks and projects)
             if note_type in ("task", "project") and meta and meta.get("requires"):
-                from .parser import parse_note, find_notes
-                from .dependencies import validate_dependencies
+                from ..core.notes import parse_metadata, find_notes
+                from ..dependencies import validate_dependencies
 
-                note = parse_note(path)
+                note = parse_metadata(path)
                 if note:
-                    # Get all notes for validation
-                    all_notes = find_notes(self.notes_dir)
+                    # Get all notes for validation (metadata only - faster)
+                    all_notes = find_notes(self.notes_dir, metadata_only=True)
                     if self.archive_dir.exists():
-                        all_notes.extend(find_notes(self.archive_dir))
+                        all_notes.extend(find_notes(self.archive_dir, metadata_only=True))
 
                     dep_errors = validate_dependencies(note, all_notes)
                     errors.extend(dep_errors)
@@ -639,7 +630,7 @@ class MaintenanceRunner:
                 target = match.group(2)
                 suffix = match.group(3)
 
-                if is_external_link(target) or target.startswith('../'):
+                if is_external_link_core(target) or target.startswith('../'):
                     return match.group(0)
 
                 target_name = target.rstrip('.md')
@@ -922,7 +913,7 @@ class MaintenanceRunner:
                     if renamed_file_path.exists():
                         meta = get_frontmatter(str(renamed_file_path))
                         if meta:
-                            from .schema import get_status_symbol
+                            from ..schema import get_status_symbol
                             
                             task_status = meta.get('status', 'todo')
                             # Get actual title from file

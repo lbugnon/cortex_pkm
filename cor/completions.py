@@ -100,7 +100,7 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
             archived_stems.append(path.stem)
 
     # Use consolidated completion logic
-    from .fuzzy import fuzzy_match
+    from .search import fuzzy_match
 
     return complete_files_with_fuzzy(
         search_stem=search_stem,
@@ -147,8 +147,8 @@ def complete_project_tasks(ctx, param, incomplete: str) -> list:
 
 def complete_task_name(ctx, param, incomplete: str) -> list:
     """Shell completion for task names (type: task in frontmatter)."""
-    from .parser import parse_note
-    from .fuzzy import fuzzy_match
+    from .core.notes import parse_metadata
+    from .search import fuzzy_match
 
     notes_dir = get_notes_dir()
     if not notes_dir.exists():
@@ -156,11 +156,11 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
 
     tasks = []
 
-    # Collect all task file stems
+    # Collect all task file stems (metadata only - faster)
     for path in notes_dir.glob("*.md"):
         if path.stem in ("root", "backlog"):
             continue
-        note = parse_note(path)
+        note = parse_metadata(path)
         if note and note.note_type == "task":
             tasks.append(path.stem)
 

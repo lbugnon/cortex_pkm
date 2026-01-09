@@ -6,7 +6,7 @@ import re
 import click
 
 from ..completions import complete_project
-from ..parser import find_notes
+from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
 from ..utils import get_notes_dir, format_time_ago, require_init, format_title
 
