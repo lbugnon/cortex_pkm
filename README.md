@@ -257,7 +257,6 @@ export COR_COMPLETE_COLLAPSE_100=1
 ## Shell Setup
 
 ### Installation
-````
 
 Run once to install git hooks and enable shell completion:
 
@@ -270,8 +269,6 @@ This installs:
 - Shell completion script to your conda environment (if using conda)
 
 ### Zsh Configuration
-
-**Important:** Do NOT manually run `compinit` after `cor hooks install`. The completion script handles initialization automatically.
 
 Add to your `~/.zshrc` to enable Tab cycling through suggestions:
 

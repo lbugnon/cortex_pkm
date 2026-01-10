@@ -199,3 +199,29 @@ def has_doi_in_bib(notes_dir: Path, doi: str) -> Optional[str]:
         return None
     except Exception:
         return None
+
+
+def load_bib_db(notes_dir: Path) -> BibDatabase:
+    """Load and return the BibDatabase (empty if missing or parse error)."""
+    bib_path = get_bib_path(notes_dir)
+    if not bib_path.exists():
+        return BibDatabase()
+    try:
+        return bibtex_loads(bib_path.read_text())
+    except Exception:
+        return BibDatabase()
+
+
+def list_bib_entries(notes_dir: Path) -> list[dict]:
+    """Return list of bib entries (dicts) from references.bib."""
+    db = load_bib_db(notes_dir)
+    return list(getattr(db, "entries", []))
+
+
+def get_bib_entry(notes_dir: Path, citekey: str) -> Optional[dict]:
+    """Get a single bib entry by citekey (ID)."""
+    db = load_bib_db(notes_dir)
+    for e in getattr(db, "entries", []):
+        if e.get("ID") == citekey:
+            return e
+    return None

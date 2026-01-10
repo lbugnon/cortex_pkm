@@ -5,15 +5,15 @@ from pathlib import Path
 import click
 
 from ..crossref import lookup_doi, extract_doi_from_url, CrossrefResult
-from ..bibtex import add_bib_entry
+from ..bibtex import add_bib_entry, list_bib_entries, get_bib_entry
 from ..core.refs import (
     RefMetadata,
-    find_refs,
     generate_citekey,
     get_existing_citekeys,
     get_ref_path,
 )
 from ..utils import get_notes_dir, require_init, log_info, open_in_editor
+from ..completions import complete_ref
 
 
 def _ensure_ref_dir(notes_dir: Path) -> Path:
@@ -156,50 +156,59 @@ def add(identifier: str, key: str | None, tags: tuple, no_edit: bool):
               default="table", help="Output format")
 @require_init
 def list_refs(fmt: str):
-    """List all references in the bibliography.
+    """List all references from references.bib.
 
     Examples:
         cor ref list
         cor ref list --format short
     """
     notes_dir = get_notes_dir()
-    refs = find_refs(notes_dir)
+    entries = list_bib_entries(notes_dir)
 
-    if not refs:
+    if not entries:
         log_info("No references found. Add one with: cor ref add <doi>")
         return
 
     # Sort by year (newest first), then by citekey
-    refs.sort(key=lambda r: (-(r.year or 0), r.citekey))
+    def year_of(e):
+        y = e.get("year")
+        try:
+            return int(y)
+        except Exception:
+            return -1
+
+    entries.sort(key=lambda e: (-year_of(e), e.get("ID", "")))
 
     if fmt == "short":
-        for ref in refs:
-            log_info(ref.citekey)
+        for e in entries:
+            log_info(e.get("ID", ""))
     else:
         # Table format
         log_info(f"{'Citekey':<25} {'Year':<6} {'Authors':<25} {'Title':<40}")
         log_info("-" * 100)
 
-        for ref in refs:
-            authors = ref.authors[0] if ref.authors else "Unknown"
-            if len(ref.authors) > 1:
-                authors += " et al."
-            if len(authors) > 25:
-                authors = authors[:22] + "..."
+        for e in entries:
+            authors_str = e.get("author") or "Unknown"
+            authors = authors_str.split(" and ") if authors_str else []
+            author_display = authors[0] if authors else "Unknown"
+            if len(authors) > 1:
+                author_display += " et al."
+            if len(author_display) > 25:
+                author_display = author_display[:22] + "..."
 
-            title = ref.title
+            title = e.get("title") or "Untitled"
             if len(title) > 40:
                 title = title[:37] + "..."
 
-            year = str(ref.year) if ref.year else "n.d."
+            year = e.get("year") or "n.d."
 
-            log_info(f"{ref.citekey:<25} {year:<6} {authors:<25} {title:<40}")
+            log_info(f"{e.get('ID',''):<25} {year:<6} {author_display:<25} {title:<40}")
 
-        log_info(f"\nTotal: {len(refs)} references")
+        log_info(f"\nTotal: {len(entries)} references")
 
 
 @click.command(short_help="Show reference details")
-@click.argument("citekey")
+@click.argument("citekey", shell_complete=complete_ref)
 @require_init
 def show(citekey: str):
     """Display detailed information about a reference.
@@ -208,36 +217,38 @@ def show(citekey: str):
         cor ref show smith2024neural
     """
     notes_dir = get_notes_dir()
-    ref_path = get_ref_path(citekey, notes_dir)
 
-    if not ref_path.exists():
+    # Load from .bib
+    entry = get_bib_entry(notes_dir, citekey)
+    if not entry:
         raise click.ClickException(f"Reference not found: {citekey}")
 
-    from ..core.refs import Reference
-    ref = Reference.from_file(ref_path)
+    title = entry.get("title") or citekey
+    authors_str = entry.get("author") or "Unknown"
+    authors = [a.strip() for a in authors_str.split(" and ") if a.strip()]
+    year = entry.get("year") or "n.d."
 
     # Display details
-    log_info(f"\n{click.style(ref.title, bold=True)}")
-    log_info(f"Citekey: {ref.citekey}")
-    log_info(f"Type: {ref.entry_type}")
-    log_info(f"Year: {ref.year or 'n.d.'}")
-    log_info(f"Authors: {', '.join(ref.authors)}")
+    log_info(f"\n{click.style(title, bold=True)}")
+    log_info(f"Citekey: {citekey}")
+    log_info(f"Type: {entry.get('ENTRYTYPE','misc')}")
+    log_info(f"Year: {year}")
+    log_info(f"Authors: {', '.join(authors) if authors else 'Unknown'}")
 
-    if ref.journal:
-        log_info(f"Journal: {ref.journal}")
-    if ref.doi:
-        log_info(f"DOI: {ref.doi}")
-    if ref.url:
-        log_info(f"URL: {ref.url}")
-    if ref.tags:
-        log_info(f"Tags: {', '.join(ref.tags)}")
+    if entry.get("journal"):
+        log_info(f"Journal: {entry.get('journal')}")
+    if entry.get("doi"):
+        log_info(f"DOI: {entry.get('doi')}")
+    if entry.get("url"):
+        log_info(f"URL: {entry.get('url')}")
 
+    # Note file path
     log_info(f"\nFile: ref/{citekey}.md")
-    log_info(f"Cite: [{ref.citekey}](ref/{citekey})")
+    log_info(f"Cite: [{citekey}](ref/{citekey})")
 
 
 @click.command(short_help="Edit a reference")
-@click.argument("citekey")
+@click.argument("citekey", shell_complete=complete_ref)
 @require_init
 def edit(citekey: str):
     """Open reference in editor.
@@ -255,7 +266,7 @@ def edit(citekey: str):
 
 
 @click.command(short_help="Delete a reference")
-@click.argument("citekey")
+@click.argument("citekey", shell_complete=complete_ref)
 @click.option("--force", "-f", is_flag=True, help="Delete without confirmation")
 @require_init
 def delete(citekey: str, force: bool):
@@ -284,6 +295,59 @@ def delete(citekey: str, force: bool):
     log_info(f"Deleted: ref/{citekey}")
 
 
+def _search_references(entries: list, query: str) -> list[tuple]:
+    """
+    """
+    return NotImplementedError()
+    
+
+@click.command(short_help="Search references by text")
+@click.argument("query")
+@click.option("--limit", "-n", type=int, default=20, help="Max results to show")
+@require_init
+def search(query: str, limit: int):
+    """Search references by citekey, authors, title, or abstract.
+
+    Examples:
+        cor ref search transformer
+        cor ref search "Smith 2024"
+        cor ref search neural -n 50
+    """
+    notes_dir = get_notes_dir()
+    q = (query or "").strip()
+    if not q:
+        raise click.ClickException("Empty query.")
+
+    entries = list_bib_entries(notes_dir)
+    if not entries:
+        log_info("No references found. Add one with: cor ref add <doi>")
+        return
+
+    results = _search_references(entries, q)
+    results = results[:limit]
+
+    if not results:
+        log_info("No matches.")
+        return
+
+    for e, score in results:
+        authors_str = e.get("author") or "Unknown"
+        authors = authors_str.split(" and ") if authors_str else []
+        author_display = authors[0] if authors else "Unknown"
+        if len(authors) > 1:
+            author_display += " et al."
+        if len(author_display) > 20:
+            author_display = author_display[:17] + "..."
+
+        title = e.get("title") or "Untitled"
+        if len(title) > 30:
+            title = title[:27] + "..."
+
+        year = e.get("year") or "n.d."
+
+        log_info(f"{e.get('ID',''):<25} {int(score):>5}   {year:<6} {author_display:<20} {title:<30}")
+
+
 # Create command group
 @click.group()
 def ref():
@@ -303,3 +367,4 @@ ref.add_command(list_refs, name="list")
 ref.add_command(show)
 ref.add_command(edit)
 ref.add_command(delete, name="del")
+ref.add_command(search)
