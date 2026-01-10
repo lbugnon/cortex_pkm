@@ -14,6 +14,7 @@ import frontmatter
 from . import __version__
 from .commands import daily, projects, weekly, tree, review, rename, group, process
 from .commands.dependencies import depend
+from .commands.refs import ref
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
 from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity
 from .sync import MaintenanceRunner
@@ -140,6 +141,7 @@ def example_vault(ctx):
     - Task groups (hierarchical organization)
     - Notes under projects
     - Standalone notes
+    - Academic references (papers from CrossRef)
     
     Perfect for exploring CortexPKM capabilities and learning the workflow.
     """
@@ -266,6 +268,14 @@ def example_vault(ctx):
     run_cor("new", "note", "random-ideas", "-t", "Brainstorm ideas for future projects", "--no_edit")
     run_cor("new", "note", "learning-log", "-t", "Track learning progress", "--no_edit")
     
+    # ===== REFERENCES =====
+    log_info("Adding reference examples...")
+    # Add influential papers related to the foundation model project
+    run_cor("ref", "add", "10.48550/arXiv.1706.03762", "--key", "vaswani2017attention", "--no-edit")  # Attention Is All You Need
+    run_cor("ref", "add", "10.48550/arXiv.1810.04805", "--key", "devlin2018bert", "--no-edit")  # BERT
+    run_cor("ref", "add", "10.48550/arXiv.2005.14165", "--key", "brown2020gpt3", "--no-edit")  # GPT-3
+    run_cor("ref", "add", "10.48550/arXiv.2203.02155", "--no-edit")  # InstructGPT, key is optional
+    
     # ===== RENAME A PROJECT =====
     run_cor("rename", "evaluation_suite", "eval-suite", "--dry-run")
     run_cor("rename", "evaluation_suite", "eval-suite")
@@ -281,6 +291,10 @@ def example_vault(ctx):
     click.echo("\nEdit files with:")
     click.echo("  cor edit foundation_model")
     click.echo("  cor edit foundation_model.training_pipeline")
+    click.echo("\nExplore references:")
+    click.echo("  cor ref list        # View all references")
+    click.echo("  cor ref show vaswani2017attention")
+    click.echo("  [to be implemented] cor ref search transformer")
 
 
 @cli.command()
@@ -1133,6 +1147,7 @@ cli.add_command(group)
 cli.add_command(process)
 cli.add_command(delete, name="del")  # Alias for delete
 cli.add_command(depend)
+cli.add_command(ref)
 
 
 if __name__ == "__main__":

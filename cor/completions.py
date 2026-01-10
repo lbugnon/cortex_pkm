@@ -13,6 +13,97 @@ from .utils import (
     get_all_notes,
 )
 from .search.completion import complete_files_with_fuzzy, complete_filtered_with_fuzzy
+from bibtexparser import loads as bibtex_loads
+from .bibtex import get_bib_path
+
+
+def complete_ref(ctx, param, incomplete: str) -> list:
+    """Shell completion for references by citekey, author, or title.
+
+    Returns citekeys as completion values with helpful context.
+    """
+    from click.shell_completion import CompletionItem
+    from .search.fuzzy import fuzzy_match
+    
+    notes_dir = get_notes_dir()
+    bib_path = get_bib_path(notes_dir)
+    if not bib_path.exists():
+        return []
+
+    db = bibtex_loads(bib_path.read_text())
+    
+    inc = (incomplete or "").strip().lower()
+    entries = getattr(db, "entries", [])
+    
+    if not entries:
+        return []
+
+    items = []
+    for e in entries:
+        cid = (e.get("ID") or "").strip()
+        if not cid:
+            continue
+        title = (e.get("title") or "").strip()
+        author = (e.get("author") or "").strip()
+        year = (e.get("year") or "").strip()
+
+        # Build authors short string (Last et al., Year)
+        authors_list = [a.strip() for a in author.split(" and ") if a.strip()]
+        first_last = authors_list[0].split(",")[0].strip() if authors_list else "Unknown"
+        if len(authors_list) > 1:
+            short_auth = f"{first_last} et al."
+        else:
+            short_auth = first_last
+
+        help_text = f"{short_auth} {year} — {title[:80]}".strip()
+
+        # Extract last names for prefix matching
+        last_names = [part.split(",")[0].strip().lower() for part in authors_list]
+
+        items.append({
+            "id": cid,
+            "id_lower": cid.lower(),
+            "title": title,
+            "authors": authors_list,
+            "last_names": last_names,
+            "year": year,
+            "help": help_text,
+        })
+
+    # 1) Prefix matches: citekey or author last name
+    prefix_matches = []
+    if inc:
+        for it in items:
+            if it["id_lower"].startswith(inc) or any(ln.startswith(inc) for ln in it["last_names"]):
+                prefix_matches.append(CompletionItem(it["id"], help=it["help"]))
+
+    # If we have prefix matches, return them
+    if prefix_matches:
+        return prefix_matches[:10]
+    
+    # Return all items if no input
+    if not inc:
+        return [CompletionItem(it["id"], help=it["help"]) for it in items[:10]]
+
+    # 2) Fuzzy fallback: search in combined text
+    if len(inc) >= 2:
+        candidates = []
+        item_map = {}
+        for it in items:
+            # Build searchable text from all fields
+            searchable = f"{it['id']} {it['title']} {' and '.join(it['authors'])}"
+            candidates.append((searchable, False))  # (text, is_archived)
+            item_map[searchable] = it
+
+        fuzzy_results = fuzzy_match(inc, candidates, limit=10, score_cutoff=40)
+        completions = []
+        for searchable, _, score in fuzzy_results:
+            it = item_map.get(searchable)
+            if it:
+                completions.append(CompletionItem(it["id"], help=f"{it['help']} (fuzzy {score}%)"))
+        return completions
+
+    return []
 
 
 def complete_name(ctx, param, incomplete: str) -> list:
