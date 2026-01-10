@@ -177,6 +177,8 @@ def lookup_doi(doi: str) -> Optional[CrossrefResult]:
     """
     # Clean DOI - remove URL prefixes
     doi, publisher = extract_doi_from_url(doi)
+    if not doi:
+        return None
     doi = doi.strip()
 
     # Handle arXiv DOIs via arxiv API

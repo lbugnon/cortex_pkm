@@ -89,6 +89,10 @@ def add(identifier: str, key: str | None, tags: tuple, no_edit: bool):
     # Extract DOI from identifier
     doi, _ = extract_doi_from_url(identifier)
 
+    if not doi:
+        raise click.ClickException(
+            "No DOI found in the provided identifier.\n"
+        )
     # Check if DOI already exists in references.bib
     from ..bibtex import has_doi_in_bib
     existing_citekey = has_doi_in_bib(notes_dir, doi)
