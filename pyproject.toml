@@ -30,6 +30,8 @@ dependencies = [
     "python-frontmatter>=1.0",
     "rapidfuzz>=3.0",
     "simple-term-menu>=1.6",
+    "habanero>=1.2",
+    "bibtexparser>=1.4",
 ]
 
 [project.urls]

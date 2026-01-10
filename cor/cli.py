@@ -14,6 +14,7 @@ import frontmatter
 from . import __version__
 from .commands import daily, projects, weekly, tree, review, rename, group, process
 from .commands.dependencies import depend
+from .commands.refs import ref
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
 from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity
 from .sync import MaintenanceRunner
@@ -1133,6 +1134,7 @@ cli.add_command(group)
 cli.add_command(process)
 cli.add_command(delete, name="del")  # Alias for delete
 cli.add_command(depend)
+cli.add_command(ref)
 
 
 if __name__ == "__main__":
