@@ -69,6 +69,11 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     # Parse note to know if we're renaming a project or a task (group included)
     note = parse_note(main_file)
 
+    if "&" in new_name:
+        raise click.ClickException(
+            "Invalid name: '&' is not allowed in note names."
+        )
+
     # Project rename keeps validation: new_name must not contain dots
     if note.note_type == "project" and "." in new_name:
         raise click.ClickException(

@@ -414,6 +414,10 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
             raise click.ClickException(
                 "Invalid name: empty segment. Use 'project.task' format."
             )
+        if "&" in part:
+            raise click.ClickException(
+                "Invalid name: '&' is not allowed in note names."
+            )
     if note_type=="project" and "." in name:
         raise click.ClickException(
             f"Invalid project name '{name}': dots are reserved for hierarchy. "
