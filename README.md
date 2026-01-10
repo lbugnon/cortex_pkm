@@ -2,7 +2,7 @@
 
 Plain text knowledge management. Track projects, tasks, ideas, and progress using markdown files and git.
 
-Small new year project to try Claude Code :)
+Small new year project to try new coding agents :)
 
 ## Philosophy
 

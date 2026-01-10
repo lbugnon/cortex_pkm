@@ -87,9 +87,7 @@ def add(identifier: str, key: str | None, tags: tuple, no_edit: bool):
     notes_dir = get_notes_dir()
 
     # Extract DOI from identifier
-    doi = extract_doi_from_url(identifier)
-    if not doi:
-        doi = identifier.strip()
+    doi, _ = extract_doi_from_url(identifier)
 
     # Check if DOI already exists in references.bib
     from ..bibtex import has_doi_in_bib
