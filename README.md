@@ -40,18 +40,12 @@ The test suite covers:
 mkdir ~/notes
 cd ~/notes
 
-# 2. Initialize git repository (required for automatic date tracking)
-git init
-
-# 3. Initialize Cortex vault
-# This sets the global vault path and installs git hooks
+# 2. Initialize Cortex vault
+# This creates the vault structure, initializes git, and installs git hooks
 cor init
 
 # Or create an example vault to explore features
 cor example-vault
-
-# Configure vault path (optional - defaults to current directory)
-cor config vault ~/notes
 
 # Create a new project
 cor new project my-project
@@ -135,7 +129,7 @@ tags: [coding, urgent]
 
 | Command | Description |
 |---------|-------------|
-| `cor init` | Initialize vault (creates notes/, templates, root.md, backlog.md) |
+| `cor init` | Initialize vault (creates structure, initializes git, installs hooks) |
 | `cor new <type> <name>` | Create file from template (project, task, note) |
 | `cor edit <name>` | Open existing file in editor (use `-a` to include archived) |
 | `cor mark <name> <status>` | Change task status (todo, active, blocked, done, dropped) |
@@ -151,8 +145,8 @@ tags: [coding, urgent]
 | `cor process` | Process backlog items into projects |
 | `cor hooks install` | Install pre-commit hook and shell completion |
 | `cor hooks uninstall` | Remove git hooks |
-| `cor config set vault <path>` | Set global vault path |
-| `cor config show` | Show current configuration |
+| `cor config vault <path>` | Set global vault path |
+| `cor config` | Show current configuration |
 | `cor maintenance sync` | Manually run archive/status sync |
 
 ### References (Bibliography)
@@ -206,14 +200,14 @@ cor ref add 10.1101/2025.07.24.666581 --key smith2026transformers --tags ml --ta
 
 ### Vault Path Setup
 
-Cortex requires your vault path to be configured in `~/.config/cortex/config.yaml`. This is set automatically by `cor init`, but can be changed anytime:
+Cortex automatically configures your vault path in `~/.config/cortex/config.yaml` when you run `cor init`. You can change it anytime:
 
 ```bash
 # Set during initial setup
 cor init
 
 # Or reconfigure later
-cor config set vault /path/to/notes
+cor config vault /path/to/notes
 ```
 
 Once configured, you can run `cor` commands from any directory:
@@ -221,9 +215,8 @@ Once configured, you can run `cor` commands from any directory:
 ```bash
 # Commands work from anywhere after init
 cd /tmp
-cor status              # Uses configured vault
-cor new task my-project.quick-idea
 cor daily
+cor new task my-project.quick-idea
 ```
 
 ### Config File Format
@@ -238,8 +231,9 @@ verbosity: 1                   # 0=silent, 1=normal, 2=verbose, 3=debug
 ### Configuration Commands
 
 ```bash
-cor config show              # Display current config
-cor config set vault <path>  # Set vault path
+cor config                # Display current config
+cor config vault <path>   # Set vault path
+cor config verbosity <0-3> # Set verbosity level
 ```
 
 ### File Hierarchy & Linking
@@ -303,72 +297,15 @@ export COR_COMPLETE_COLLAPSE_100=1
 
 ## Shell Setup
 
-### Installation
+Shell completion is automatically configured when you run `cor init`. The setup detects your shell (zsh or bash) and adds the necessary completion code to your shell config file.
 
-Run once to install git hooks and enable shell completion:
+### Zsh
 
-```bash
-cor hooks install
-```
-
-This installs:
-- Git pre-commit hook (auto-updates modified dates, archives completed items, validates consistency)
-- Shell completion script to your conda environment (if using conda)
-
-### Zsh Configuration
-
-Add to your `~/.zshrc` to enable Tab cycling through suggestions:
-
-```zsh
-autoload -Uz compinit; compinit -i 
-
-# Enable Tab to cycle through completion matches (recommended)
-bindkey '^I' menu-complete
-bindkey '^[[Z' reverse-menu-complete  # Shift-Tab for reverse
-```
-
-Then reactivate your environment:
-```zsh
-conda deactivate
-conda activate <your-env-name>
-```
-
-**Test it:**
-```zsh
-cor edit diffusion<TAB>           # Shows matching files
-<TAB> again                        # Cycles to next match
-```
-
-### Bash Configuration
-
-Bash completion is automatically enabled. Add to your `~/.bashrc` for menu-style cycling:
-
-```bash
-# Show all completions on first Tab, cycle on subsequent Tabs
-bind 'set show-all-if-ambiguous on'
-bind 'TAB:menu-complete'
-bind '"\e[Z": reverse-menu-complete'  # Shift-Tab for reverse
-```
+After running `cor init`, optionally add to your `~/.zshrc` to enable Tab cycling through suggestions:
 
 Then reload:
-```bash
-source ~/.bashrc
-```
-
-**Test it:**
-```bash
-cor edit diffusion<TAB>           # Shows matching files
-<TAB> again                        # Cycles to next match
-```
-
-### Tab Completion Examples
-
-Once set up:
-
-```bash
-cor new task my-<TAB>              # Completes project names
-cor edit dif<TAB>                  # Fuzzy matches + cycles
-cor mark impl <TAB>                # Shows task status options
+```zsh
+source ~/.zshrc # or .bashrc
 ```
 
 ## Directory Structure
@@ -379,10 +316,12 @@ cor mark impl <TAB>                # Shows task status options
 ~/.config/cortex/
 └── config.yaml             # Global config (vault path, verbosity)
 
-~/.miniconda3/etc/conda/activate.d/
-└── cor-completion.sh       # Shell completion (zsh & bash)
+~/.zshrc or ~/.bashrc       # Shell completion automatically added here
 
 your-vault/                 # Your notes directory
+├── .git/                   # Git repository (auto-initialized by cor init)
+│   └── hooks/
+│       └── pre-commit      # Auto-maintenance hook
 ├── root.md                 # Dashboard/digest of current state
 ├── backlog.md              # Unsorted inbox for capture
 ├── archive/                # Completed/archived items
@@ -439,16 +378,7 @@ cortex_pkm/                 # Repository root
 
 ## Git Hooks & Automation
 
-The pre-commit hook automatically runs on every commit to keep your vault consistent.
-
-### Installation
-
-```bash
-cor hooks install    # Enable pre-commit hook + shell completion
-cor hooks uninstall  # Disable pre-commit hook
-```
-
-The hook is automatically installed when you run `cor init` in a git repository.
+The pre-commit hook automatically runs on every commit to keep your vault consistent. It is automatically installed when you run `cor init`.
 
 ### What the Hook Does
 

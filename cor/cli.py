@@ -68,11 +68,10 @@ def cli(ctx, verbose: int):
 def init(ctx, yes: bool):
     """Initialize a new Cortex vault.
     
-    Creates the necessary directory structure and template files.
+    Creates the vault structure (notes/, templates/, root.md, backlog.md).
+    Initializes git repository if not already present.
+    Installs git hooks and configures shell completion automatically.
     Sets this directory as your vault path in the global config.
-    Automatically installs git hooks if in a git repository.
-    
-    Run 'git init' first if you want automatic date tracking.
     """
     # Ask for confirmation to set this directory as vault
     vault_path = Path.cwd()
@@ -118,16 +117,23 @@ def init(ctx, yes: bool):
 
     log_info("Cortex vault initialized.")
 
-    # Install git hooks if in a git repository
+    # Check if git repository exists, create if it doesn't
     result = subprocess.run(
         ["git", "rev-parse", "--git-dir"],
         capture_output=True,
         text=True,
+        cwd=vault_path,
     )
-    if result.returncode == 0:
-        ctx.invoke(hooks_install)
-    else:
-        log_verbose("Not in a git repository - skipping hook installation.")
+    if result.returncode != 0:
+        # Initialize git repository
+        log_verbose("Initializing git repository...")
+        subprocess.run(["git", "init"], cwd=vault_path, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "CortexPKM"], cwd=vault_path, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "cortex@local"], cwd=vault_path, capture_output=True)
+        log_info("Git repository initialized.")
+    
+    # Install git hooks
+    ctx.invoke(hooks_install)
 
 
 @cli.command()
@@ -934,17 +940,26 @@ def hooks_install():
 
     click.echo(f"Installed pre-commit hook to {target}")
 
-    # Install conda activate hook for shell completion
-    conda_prefix = os.environ.get("CONDA_PREFIX")
-    if conda_prefix:
-        activate_dir = Path(conda_prefix) / "etc" / "conda" / "activate.d"
-        activate_dir.mkdir(parents=True, exist_ok=True)
+    # Detect shell and install completion
+    shell = os.environ.get("SHELL", "")
+    
+    if "zsh" in shell:
+        _install_zsh_completion()
+    elif "bash" in shell:
+        _install_bash_completion()
+    else:
+        click.echo("Shell not detected. For shell completion, add to your shell config:")
+        click.echo('  # For zsh: eval "$(_COR_COMPLETE=zsh_source cor)"')
+        click.echo('  # For bash: eval "$(_COR_COMPLETE=bash_source cor)"')
 
-        completion_script = activate_dir / "cor-completion.sh"
-        # Cortex shell completion for zsh and bash
-        completion_script.write_text('''\
-# Cortex shell completion (zsh and bash)
-if [ -n "$ZSH_VERSION" ]; then
+
+def _install_zsh_completion():
+    """Install completion for zsh by updating ~/.zshrc."""
+    zshrc = Path.home() / ".zshrc"
+    
+    completion_block = '''
+# Cortex shell completion
+if command -v cor &> /dev/null; then
     _cor_completion() {
         local -a completions completions_partial
         local -a response
@@ -952,7 +967,6 @@ if [ -n "$ZSH_VERSION" ]; then
 
         response=("${(@f)$(env COMP_WORDS="${words[*]}" COMP_CWORD=$((CURRENT-1)) _COR_COMPLETE=zsh_complete cor)}")
 
-        # click zsh completion returns triples: type, value, help per item
         local i=1
         local rlen=${#response}
         while (( i <= rlen )); do
@@ -962,7 +976,6 @@ if [ -n "$ZSH_VERSION" ]; then
             (( i += 3 ))
             if [[ "$type" == "plain" && -n "$key" ]]; then
                 if [[ "$key" == *. ]]; then
-                    # Partial completion (ends with .) - no trailing space
                     completions_partial+=("$key")
                 else
                     completions+=("$key")
@@ -970,13 +983,11 @@ if [ -n "$ZSH_VERSION" ]; then
             fi
         done
 
-        # If nothing to add, decline completion so zsh doesn't clobber input
         if [[ ${#completions_partial} -eq 0 && ${#completions} -eq 0 ]]; then
             return 1
         fi
 
         if [[ ${#completions_partial} -gt 0 ]]; then
-            # -Q to quote special chars; provide list explicitly to avoid odd edge cases
             compadd -Q -U -S '' -V partial -- ${completions_partial[@]}
         fi
         if [[ ${#completions} -gt 0 ]]; then
@@ -984,15 +995,48 @@ if [ -n "$ZSH_VERSION" ]; then
         fi
     }
     compdef _cor_completion cor
-elif [ -n "$BASH_VERSION" ]; then
+fi
+'''
+    
+    # Check if completion is already installed
+    if zshrc.exists():
+        content = zshrc.read_text()
+        if "# Cortex shell completion" in content or "_cor_completion" in content:
+            click.echo("Shell completion already configured in ~/.zshrc")
+            return
+    
+    # Append completion block
+    with zshrc.open("a") as f:
+        f.write(completion_block)
+    
+    click.echo("Added shell completion to ~/.zshrc")
+    click.echo("Run 'source ~/.zshrc' or restart your shell to enable")
+
+
+def _install_bash_completion():
+    """Install completion for bash by updating ~/.bashrc."""
+    bashrc = Path.home() / ".bashrc"
+    
+    completion_block = '''
+# Cortex shell completion
+if command -v cor &> /dev/null; then
     eval "$(_COR_COMPLETE=bash_source cor)"
 fi
-''')
-        click.echo(f"Installed shell completion to {completion_script}")
-        click.echo("Reactivate conda environment")
-    else:
-        click.echo("No conda environment detected. For shell completion, add to ~/.zshrc:")
-        click.echo('  eval "$(_COR_COMPLETE=zsh_source cor)"')
+'''
+    
+    # Check if completion is already installed
+    if bashrc.exists():
+        content = bashrc.read_text()
+        if "# Cortex shell completion" in content or "_COR_COMPLETE=bash_source" in content:
+            click.echo("Shell completion already configured in ~/.bashrc")
+            return
+    
+    # Append completion block
+    with bashrc.open("a") as f:
+        f.write(completion_block)
+    
+    click.echo("Added shell completion to ~/.bashrc")
+    click.echo("Run 'source ~/.bashrc' or restart your shell to enable")
 
 
 @hooks.command("uninstall")
