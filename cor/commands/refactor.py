@@ -85,14 +85,12 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     if note.note_type == "task" and len(old_parts) >= 2:
         leaf = old_parts[-1]
         old_project = old_parts[0]
-        apply_shortcut = False
         
         if len(new_parts) == 1:
             # cor rename p1.g1.task -> p2  => p2.task (if p2 is a project)
             # Always apply shortcut when moving to a different project (if it exists)
             target_check = target_dir / f"{new_parts[0]}.md"
             if target_check.exists():
-                apply_shortcut = True
                 resolved_new_name = f"{new_parts[0]}.{leaf}"
             else:
                 # Target project doesn't exist, use new_name as-is for full rename
@@ -107,14 +105,12 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
                 # Moving within same project: only apply shortcut if target exists
                 target_check = target_dir / f"{new_project}.{new_group}.md"
                 if target_check.exists():
-                    apply_shortcut = True
                     resolved_new_name = f"{new_project}.{new_group}.{leaf}"
                 else:
                     # Target doesn't exist, use new_name as-is for full rename
                     resolved_new_name = new_name
             else:
                 # Moving to different project: always apply shortcut (create group if needed)
-                apply_shortcut = True
                 resolved_new_name = f"{new_project}.{new_group}.{leaf}"
         else:
             # 3+ parts in new_name means explicit full rename; use as-is

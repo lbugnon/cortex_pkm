@@ -22,8 +22,10 @@ def initialized_vault(temp_vault, runner, monkeypatch):
 
 def test_move_task_within_project_target_does_not_exist(runner, initialized_vault):
     """When target doesn't exist in same project, do full rename."""
-    runner.invoke(cli, ["new", "project", "py1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "py1.task", "--no_edit"]) 
+    result = runner.invoke(cli, ["new", "project", "py1", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "task", "py1.task", "--no_edit"]) 
+    assert result.exit_code == 0
 
     result = runner.invoke(cli, ["move", "py1.task", "py1.task_new"]) 
     assert result.exit_code == 0, result.output
@@ -35,9 +37,12 @@ def test_move_task_within_project_target_does_not_exist(runner, initialized_vaul
 
 def test_move_task_within_project_target_exists(runner, initialized_vault):
     """When target exists in same project, move under it as a child."""
-    runner.invoke(cli, ["new", "project", "py1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "py1.task", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "py1.task_new", "--no_edit"]) 
+    result = runner.invoke(cli, ["new", "project", "py1", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "task", "py1.task", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "task", "py1.task_new", "--no_edit"]) 
+    assert result.exit_code == 0
 
     result = runner.invoke(cli, ["move", "py1.task", "py1.task_new"]) 
     assert result.exit_code == 0, result.output
@@ -49,9 +54,12 @@ def test_move_task_within_project_target_exists(runner, initialized_vault):
 
 def test_move_task_to_different_project_creates_group(runner, initialized_vault):
     """When moving to different project, always apply shortcut (old behavior)."""
-    runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "p1.task1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "project", "p2", "--no_edit"]) 
+    result = runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "task", "p1.task1", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "project", "p2", "--no_edit"]) 
+    assert result.exit_code == 0
 
     result = runner.invoke(cli, ["move", "p1.task1", "p2.group"]) 
     assert result.exit_code == 0, result.output
