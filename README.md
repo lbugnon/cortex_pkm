@@ -2,7 +2,7 @@
 
 Plain text knowledge management. Track projects, tasks, ideas, and progress using markdown files and git.
 
-Small new year project to try Claude Code :)
+Small new year project to try new coding agents :)
 
 ## Philosophy
 
@@ -149,6 +149,53 @@ tags: [coding, urgent]
 | `cor config` | Show current configuration |
 | `cor maintenance sync` | Manually run archive/status sync |
 
+### References (Bibliography)
+
+Manage bibliography as markdown notes in `ref/` and a BibLaTeX file `ref/references.bib`.
+
+- **Add**: Add a reference from a DOI or URL.
+   - Command: `cor ref add <identifier> [--key KEY] [--tags TAG ...] [--no-edit]`
+   - Identifier can be:
+      - A DOI: `10.xxxx/abcd.2024`
+      - A DOI URL: `https://doi.org/10.xxxx/abcd.2024` or publisher paths containing a DOI (e.g., `https://www.biorxiv.org/content/10.1101/...`)
+      - An arXiv URL or ID: `https://arxiv.org/abs/1706.03762` or `1706.03762` (mapped to `10.48550/arXiv.<id>`)
+   - Behavior: creates `ref/<citekey>.md` and updates `ref/references.bib`.
+   - Note: does not scrape publisher pages. If the URL does not contain a DOI, a friendly error explains how to supply one.
+
+- **List**: Show all references.
+   - Command: `cor ref list [--format table|short]`
+
+- **Show**: Display details for a reference.
+   - Command: `cor ref show <citekey>`
+
+- **Edit**: Open the reference note.
+   - Command: `cor ref edit <citekey>`
+
+- **Delete**: Remove the reference note.
+   - Command: `cor ref del <citekey> [--force]`
+
+- **Search** (experimental): Text search across stored reference metadata.
+   - Command: `cor ref search <query> [--limit N]`
+
+Examples:
+
+```bash
+# Add from DOI
+cor ref add 10.1101/2025.07.24.666581
+
+# Add from DOI URL
+cor ref add https://doi.org/10.1101/2025.07.24.666581
+
+# Add from publisher URL (DOI embedded in path)
+cor ref add https://www.biorxiv.org/content/10.1101/2025.07.24.666581v1
+
+# Add from arXiv ID
+cor ref add 1706.03762
+
+# Custom citekey and tags
+cor ref add 10.1101/2025.07.24.666581 --key smith2026transformers --tags ml --tags nlp
+```
+
 ## Configuration
 
 ### Vault Path Setup
@@ -256,53 +303,9 @@ Shell completion is automatically configured when you run `cor init`. The setup 
 
 After running `cor init`, optionally add to your `~/.zshrc` to enable Tab cycling through suggestions:
 
-```zsh
-# Enable Tab to cycle through completion matches (recommended)
-bindkey '^I' menu-complete
-bindkey '^[[Z' reverse-menu-complete  # Shift-Tab for reverse
-```
-
 Then reload:
 ```zsh
-source ~/.zshrc
-```
-
-**Test it:**
-```zsh
-cor edit diffusion<TAB>           # Shows matching files
-<TAB> again                        # Cycles to next match
-```
-
-### Bash
-
-After running `cor init`, optionally add to your `~/.bashrc` for menu-style cycling:
-
-```bash
-# Show all completions on first Tab, cycle on subsequent Tabs
-bind 'set show-all-if-ambiguous on'
-bind 'TAB:menu-complete'
-bind '"\e[Z": reverse-menu-complete'  # Shift-Tab for reverse
-```
-
-Then reload:
-```bash
-source ~/.bashrc
-```
-
-**Test it:**
-```bash
-cor edit diffusion<TAB>           # Shows matching files
-<TAB> again                        # Cycles to next match
-```
-
-### Tab Completion Examples
-
-Once set up:
-
-```bash
-cor new task my-<TAB>              # Completes project names
-cor edit dif<TAB>                  # Fuzzy matches + cycles
-cor mark impl <TAB>                # Shows task status options
+source ~/.zshrc # or .bashrc
 ```
 
 ## Directory Structure
@@ -376,15 +379,6 @@ cortex_pkm/                 # Repository root
 ## Git Hooks & Automation
 
 The pre-commit hook automatically runs on every commit to keep your vault consistent. It is automatically installed when you run `cor init`.
-
-### Installation
-
-The hook is automatically installed during `cor init`. You can also manually manage it:
-
-```bash
-cor hooks install    # Manually install pre-commit hook + shell completion
-cor hooks uninstall  # Remove pre-commit hook
-```
 
 ### What the Hook Does
 
