@@ -302,7 +302,6 @@ def extract_doi_from_url(url: str) -> Optional[str]:
     Handles:
     - https://doi.org/10.1234/example
     - https://dx.doi.org/10.1234/example
-    - https://www.science.org/doi/10.1234/example
     - https://arxiv.org/abs/1706.03762
     - 1706.03762 (arXiv ID)
     - 10.1234/example (plain DOI)
@@ -331,12 +330,12 @@ def extract_doi_from_url(url: str) -> Optional[str]:
         doi = match.group(1)
         # Clean trailing punctuation
         doi = doi.rstrip(".,;")
+        # remove version suffix if present
+        doi = re.sub(r"(v\d+)$", "", doi)
         return doi, "publisher"
-
-    # Science.org pattern: /doi/10.xxxx/...
+    # Standard doi subpatter: /doi/10.xxxx/...
     m = re.search(r"/doi/(10\.\d+/\S+)", url)
     if m:
         doi = m.group(1).rstrip(".,;")
         return doi, "publisher"
-
     return None, None
