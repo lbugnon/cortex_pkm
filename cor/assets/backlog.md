@@ -6,3 +6,5 @@ modified: {date}
 
 Capture anything here. Process with `cor process`.
 
+## Inbox
+

@@ -12,7 +12,7 @@ import click
 import frontmatter
 
 from . import __version__
-from .commands import daily, projects, weekly, tree, review, rename, group, process
+from .commands import daily, projects, weekly, tree, review, rename, group, process, log
 from .commands.dependencies import depend
 from .commands.refs import ref
 from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
@@ -1193,6 +1193,7 @@ cli.add_command(rename)
 cli.add_command(rename, name="move")  # Alias for rename
 cli.add_command(group)
 cli.add_command(process)
+cli.add_command(log)
 cli.add_command(delete, name="del")  # Alias for delete
 cli.add_command(depend)
 cli.add_command(ref)

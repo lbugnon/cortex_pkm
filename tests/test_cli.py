@@ -12,6 +12,7 @@ Tests cover:
 
 import pytest
 import frontmatter
+from datetime import date
 from click.testing import CliRunner
 
 from cor.cli import cli
@@ -151,6 +152,41 @@ class TestNew:
 
         content = (initialized_vault / "myproj.meeting.md").read_text()
         assert "type: note" in content, "Note should have type: note"
+
+
+class TestLog:
+    """Test cor log command."""
+
+    def test_log_appends_to_inbox(self, runner, initialized_vault, monkeypatch):
+        """cor log -t should append bullet to backlog inbox."""
+        monkeypatch.chdir(initialized_vault)
+
+        result = runner.invoke(cli, ["log", "-t", "Capture an idea"])
+        assert result.exit_code == 0, f"Log failed: {result.output}"
+
+        content = (initialized_vault / "backlog.md").read_text()
+        assert "- Capture an idea" in content
+
+    def test_log_creates_inbox_if_missing(self, runner, initialized_vault, monkeypatch):
+        """log should create Inbox section if absent."""
+        monkeypatch.chdir(initialized_vault)
+
+        backlog_path = initialized_vault / "backlog.md"
+        today = date.today().isoformat()
+        backlog_path.write_text(f"""\
+---
+created: {today}
+modified: {today}
+---
+# Backlog
+""")
+
+        result = runner.invoke(cli, ["log", "-t", "New backlog item"])
+        assert result.exit_code == 0, f"Log failed: {result.output}"
+
+        content = backlog_path.read_text()
+        assert "## Inbox" in content
+        assert "- New backlog item" in content
 
 
 class TestTag:
