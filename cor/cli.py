@@ -386,10 +386,9 @@ def config(key: str | None, value: str | None):
 @cli.command()
 @click.argument("note_type", type=click.Choice(["project", "task", "note"]))
 @click.argument("name", shell_complete=complete_name)
-@click.option("--text", "-t", type=str, help="Brief description to add to the note/task")
-@click.option("--no_edit", is_flag=True, help="Don't open in editor")
+@click.argument("text", nargs=-1)
 @require_init
-def new(note_type: str, name: str, text: str | None, no_edit: bool):
+def new(note_type: str, name: str, text: str | None):
     """Create a new project, task, or note.
 
     Use dot notation for hierarchy: project.task or project.group.task
@@ -539,6 +538,8 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
         add_task_to_project(project_path, task_name, task_filename)
         click.echo(f"Added to {project_path}")
 
+    text = " ".join(text)
+    
     if text and note_type in ("task", "note"):
         click.echo("Added description text.")
         with filepath.open("r+") as f:
@@ -547,7 +548,7 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
             f.seek(0)
             f.write(content)
             f.truncate()
-    elif not no_edit:
+    else:
        open_in_editor(filepath)
 
 
