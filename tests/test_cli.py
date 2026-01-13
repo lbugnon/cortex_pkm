@@ -158,10 +158,10 @@ class TestLog:
     """Test cor log command."""
 
     def test_log_appends_to_inbox(self, runner, initialized_vault, monkeypatch):
-        """cor log -t should append bullet to backlog inbox."""
+        """cor log should append bullet to backlog inbox."""
         monkeypatch.chdir(initialized_vault)
 
-        result = runner.invoke(cli, ["log", "-t", "Capture an idea"])
+        result = runner.invoke(cli, ["log", "Capture an idea"])
         assert result.exit_code == 0, f"Log failed: {result.output}"
 
         content = (initialized_vault / "backlog.md").read_text()
@@ -181,7 +181,7 @@ modified: {today}
 # Backlog
 """)
 
-        result = runner.invoke(cli, ["log", "-t", "New backlog item"])
+        result = runner.invoke(cli, ["log", "New backlog item"])
         assert result.exit_code == 0, f"Log failed: {result.output}"
 
         content = backlog_path.read_text()

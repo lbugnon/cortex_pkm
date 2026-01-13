@@ -10,7 +10,7 @@ from ..schema import DATE_TIME
 
 
 @click.command(short_help="Append text to backlog inbox")
-@click.option("text", "-t", "--text", required=True, help="Text to append to backlog inbox")
+@click.argument("text", nargs=-1)
 @require_init
 def log(text: str):
     """Append a line item to the backlog inbox.
@@ -18,7 +18,7 @@ def log(text: str):
     Ensures the Inbox section exists and adds the provided text as a bullet.
     Updates the backlog modified timestamp.
     """
-    normalized = (text or "").strip()
+    normalized = (" ".join(text) or "").strip()
     if not normalized:
         raise click.ClickException("Text cannot be empty.")
 
