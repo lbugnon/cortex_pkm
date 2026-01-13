@@ -31,6 +31,7 @@ from .utils import (
     require_init,
     log_info,
     log_verbose,
+    parse_natural_language_text,
 )
 
 HOOKS_DIR = Path(__file__).parent / "hooks"
@@ -541,13 +542,36 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
         click.echo(f"Added to {project_path}")
 
     if text and note_type in ("task", "note"):
-        click.echo("Added description text.")
-        with filepath.open("r+") as f:
-            content = f.read()
-            content = content.replace("## Description\n", f"## Description\n\n{text}\n")
-            f.seek(0)
-            f.write(content)
-            f.truncate()
+        # Parse natural language dates and tags
+        cleaned_text, due_date, parsed_tags = parse_natural_language_text(text)
+        
+        # Update the description with cleaned text
+        if cleaned_text:
+            click.echo("Added description text.")
+            with filepath.open("r+") as f:
+                content = f.read()
+                content = content.replace("## Description\n", f"## Description\n\n{cleaned_text}\n")
+                f.seek(0)
+                f.write(content)
+                f.truncate()
+        
+        # Add due date if parsed
+        if due_date:
+            post = frontmatter.load(filepath)
+            post['due'] = due_date.strftime(DATE_TIME)
+            with open(filepath, 'wb') as f:
+                frontmatter.dump(post, f, sort_keys=False)
+            click.echo(f"Set due date: {due_date.strftime(DATE_TIME)}")
+        
+        # Add tags if parsed
+        if parsed_tags:
+            post = frontmatter.load(filepath)
+            existing_tags = post.get("tags", [])
+            new_tags = existing_tags + [t for t in parsed_tags if t not in existing_tags]
+            post["tags"] = new_tags
+            with open(filepath, 'wb') as f:
+                frontmatter.dump(post, f, sort_keys=False)
+            click.echo(f"Added tags: {', '.join(parsed_tags)}")
     elif not no_edit:
        open_in_editor(filepath)
 
