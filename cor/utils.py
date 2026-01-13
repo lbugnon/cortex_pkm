@@ -296,8 +296,10 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
     cleaned_text = text
     
     # Pattern to match "due <date>" or "due: <date>"
-    # Capture everything after "due" until we hit "tag" keyword or end of string
-    # Use a non-greedy match and look ahead for tag or end
+    # Regex explanation:
+    # - \bdue:?\s+ : Match "due" or "due:" followed by whitespace (word boundary before "due")
+    # - (.+?) : Capture the date text (non-greedy)
+    # - (?=\s+tag(?:\b|:)|$) : Look ahead for "tag" keyword or end of string (don't capture)
     due_pattern = r'\bdue:?\s+(.+?)(?=\s+tag(?:\b|:)|$)'
     due_match = re.search(due_pattern, cleaned_text, re.IGNORECASE)
     
@@ -320,7 +322,10 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
             cleaned_text = cleaned_text.strip()
     
     # Pattern to match "tag <tag1> <tag2> ..." or "tag: <tag1> <tag2> ..."
-    # Capture everything after "tag" until we hit "due" keyword or end of string
+    # Regex explanation:
+    # - \btag:?\s+ : Match "tag" or "tag:" followed by whitespace (word boundary before "tag")
+    # - (.+?) : Capture the tag text (non-greedy)
+    # - (?=\s+due(?:\b|:)|$) : Look ahead for "due" keyword or end of string (don't capture)
     tag_pattern = r'\btag:?\s+(.+?)(?=\s+due(?:\b|:)|$)'
     tag_match = re.search(tag_pattern, cleaned_text, re.IGNORECASE)
     
