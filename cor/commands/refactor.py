@@ -87,8 +87,8 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
         old_project = old_parts[0]
         
         if len(new_parts) == 1:
-            # cor rename p1.g1.task -> p2  => p2.task (if p2 is a project)
-            # Always apply shortcut when moving to a different project (if it exists)
+            # cor rename p1.task -> p2  => p2.task.md if p2 exists, otherwise p2.md
+            # Check if target project exists before applying shortcut
             target_check = target_dir / f"{new_parts[0]}.md"
             if target_check.exists():
                 resolved_new_name = f"{new_parts[0]}.{leaf}"

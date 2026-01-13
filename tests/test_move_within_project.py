@@ -67,3 +67,35 @@ def test_move_task_to_different_project_creates_group(runner, initialized_vault)
     assert not (initialized_vault / "p1.task1.md").exists()
     assert (initialized_vault / "p2.group.md").exists(), "Group should be created"
     assert (initialized_vault / "p2.group.task1.md").exists(), "task1 should be moved under group"
+
+
+def test_move_task_to_existing_project(runner, initialized_vault):
+    """When moving to existing project, apply shortcut to create task under project."""
+    result = runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "task", "p1.task", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "project", "p2", "--no_edit"]) 
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, ["move", "p1.task", "p2"]) 
+    assert result.exit_code == 0, result.output
+
+    assert not (initialized_vault / "p1.task.md").exists()
+    assert (initialized_vault / "p2.md").exists(), "p2 project should still exist"
+    assert (initialized_vault / "p2.task.md").exists(), "task should be moved to p2.task"
+
+
+def test_move_task_to_nonexistent_project(runner, initialized_vault):
+    """When moving to non-existent project, do full rename."""
+    result = runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
+    assert result.exit_code == 0
+    result = runner.invoke(cli, ["new", "task", "p1.task", "--no_edit"]) 
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, ["move", "p1.task", "p2"]) 
+    assert result.exit_code == 0, result.output
+
+    assert not (initialized_vault / "p1.task.md").exists()
+    assert (initialized_vault / "p2.md").exists(), "Should rename to p2.md"
+    assert not (initialized_vault / "p2.task.md").exists(), "Should NOT create p2.task.md"
