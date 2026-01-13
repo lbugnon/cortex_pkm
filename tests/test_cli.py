@@ -285,6 +285,22 @@ class TestTree:
         assert "Group" in result.output or "group" in result.output.lower()
         assert "Subtask" in result.output or "subtask" in result.output.lower()
 
+    def test_tree_shows_note_count(self, runner, initialized_vault, monkeypatch):
+        """cor tree should mention attached notes."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "note", "myproj.brainstorm", "--no_edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
+        runner.invoke(cli, ["new", "note", "myproj.task1.context", "--no_edit"])
+
+        result = runner.invoke(cli, ["tree", "myproj"])
+        assert result.exit_code == 0, f"Tree failed: {result.output}"
+
+        output = result.output.lower()
+        assert "and 1 note" in output, "Should show project-level note count"
+        assert any("task1" in line and "and 1 note" in line for line in output.splitlines()), "Task should surface attached note count"
+
 
 class TestRename:
     """Test cor rename command."""

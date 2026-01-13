@@ -8,7 +8,7 @@ import click
 from ..completions import complete_project
 from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
-from ..utils import get_notes_dir, format_time_ago, require_init, format_title
+from ..utils import get_notes_dir, format_time_ago, require_init, format_title, get_parent_name
 
 # Shared color mappings for all tree views
 TASK_COLORS = {
@@ -61,6 +61,24 @@ def _extract_description(note) -> str | None:
             desc = desc[:77] + "..."
         return desc
     return None
+
+
+def _format_note_label(count: int) -> str:
+    """Return human-friendly note count label."""
+    return f"{count} note" if count == 1 else f"{count} notes"
+
+
+def _build_note_counts(notes: list) -> dict[str, int]:
+    """Build mapping of parent stem -> attached note count."""
+    counts: dict[str, int] = {}
+    for note in notes:
+        if note.note_type != "note":
+            continue
+        parent = get_parent_name(note.path.stem)
+        if not parent:
+            continue
+        counts[parent] = counts.get(parent, 0) + 1
+    return counts
 
 
 def _format_dependency_indicator(note, all_notes: list, verbose: bool = False) -> str:
@@ -157,6 +175,7 @@ def show_tree(
     capture: list | None = None,
     verbose: bool = False,
     all_notes: list | None = None,
+    note_counts: dict[str, int] | None = None,
 ):
     """
     Unified tree rendering function.
@@ -172,7 +191,10 @@ def show_tree(
         separator_transitions: List of (from_statuses, to_statuses) tuples for separators
         verbose: Whether to show description text under tasks
         all_notes: List of all notes for dependency resolution (optional)
+        note_counts: Optional mapping of parent stem -> number of attached notes
     """
+    note_counts = note_counts or {}
+
     if parent_name not in tasks_by_parent:
         return
 
@@ -226,6 +248,12 @@ def show_tree(
             dep_indicator = _format_dependency_indicator(task, all_notes, verbose=False)
             task_display += dep_indicator
 
+        # Append note count if this task has attached notes
+        note_count = note_counts.get(task.path.stem, 0)
+        if note_count:
+            note_suffix = _format_note_label(note_count)
+            task_display += click.style(f" (and {note_suffix})", dim=True)
+
         line = f"{prefix}{branch}{task_display}"
         click.echo(line)
         if capture is not None:
@@ -263,6 +291,7 @@ def show_tree(
             capture=capture,
             verbose=verbose,
             all_notes=all_notes,
+            note_counts=note_counts,
         )
 
         prev_status = task.status
@@ -664,6 +693,8 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
     if archive_dir.exists():
         notes.extend(find_notes(archive_dir))
 
+    note_counts = _build_note_counts(notes)
+
     # Build project -> tags mapping for propagation
     project_tags: dict[str, set[str]] = {
         n.path.stem: set(n.tags or []) for n in notes if n.note_type == "project"
@@ -792,6 +823,7 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
                 capture=capture_lines,
                 verbose=verbose,
                 all_notes=notes,
+                note_counts=note_counts,
             )
 
             # List high priority tasks separately if any
@@ -868,6 +900,7 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
             capture=capture_lines,
             verbose=verbose,
             all_notes=notes,
+            note_counts=note_counts,
         )
         emit()
 
@@ -901,6 +934,8 @@ def tree(verbose: bool, project: str):
     if archive_dir.exists():
         notes.extend(find_notes(archive_dir))
 
+    note_counts = _build_note_counts(notes)
+
     # Find the project
     project_note = None
     for note in notes:
@@ -923,7 +958,11 @@ def tree(verbose: bool, project: str):
     # Print project header
     color = PROJECT_COLORS.get(project_note.status)
     click.echo(click.style(f"\n{project_note.title}", fg=color, bold=True))
-    click.echo(click.style(f"({project_note.status or 'no status'})", dim=True))
+    status_line = f"({project_note.status or 'no status'})"
+    project_note_count = note_counts.get(project, 0)
+    if project_note_count:
+        status_line += f" (and {_format_note_label(project_note_count)})"
+    click.echo(click.style(status_line, dim=True))
 
     # Show project dependencies if any
     if project_note.requires:
@@ -933,7 +972,8 @@ def tree(verbose: bool, project: str):
                 click.echo(click.style(f"  {detail_line}", dim=True, fg='yellow'))
 
     if project not in tasks_by_parent:
-        click.echo("  No tasks found.")
+        suffix = f" (but {_format_note_label(project_note_count)})" if project_note_count else ""
+        click.echo(f"  No tasks found{suffix}.")
     else:
         # Sort function: by status order, then by name
         def sort_tasks(tasks):
@@ -946,6 +986,7 @@ def tree(verbose: bool, project: str):
             show_separators=True,
             verbose=verbose,
             all_notes=notes,
+            note_counts=note_counts,
         )
 
 
