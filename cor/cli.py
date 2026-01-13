@@ -388,7 +388,7 @@ def config(key: str | None, value: str | None):
 @cli.command()
 @click.argument("note_type", type=click.Choice(["project", "task", "note"]))
 @click.argument("name", shell_complete=complete_name)
-@click.option("--text", "-t", type=str, help="Brief description to add to the note/task")
+@click.option("--text", "-t", type=str, help="Brief description (supports 'due <date>' and 'tag <tags>' for natural language parsing)")
 @click.option("--no_edit", is_flag=True, help="Don't open in editor")
 @require_init
 def new(note_type: str, name: str, text: str | None, no_edit: bool):
@@ -403,6 +403,12 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
       cor new task my-project.implement-feature
       cor new task my-project.bugs.fix-login    # Creates bugs group
       cor new note my-project.meeting-notes
+      
+    \b
+    Natural language dates and tags (for tasks/notes):
+      cor new task proj.task -t "finish pipeline due tomorrow"
+      cor new task proj.task -t "fix bug tag urgent ml"
+      cor new task proj.task -t "code review due next friday tag review"
 
     Note: Use hyphens in names, not dots (e.g., v0-1 not v0.1)
     """
