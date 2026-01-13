@@ -802,8 +802,9 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
 @cli.command()
 @click.argument("name", shell_complete=complete_task_name)
 @click.argument("status", shell_complete=complete_task_status)
+@click.option("-t", "--text", type=str, help="Append text to the note")
 @require_init
-def mark(name: str, status: str):
+def mark(name: str, status: str, text: str | None):
     """Update task status.
 
     Supports fuzzy matching for task names.
@@ -821,6 +822,7 @@ def mark(name: str, status: str):
     Examples:
       cor mark impl active          # Fuzzy matches 'implement-api'
       cor mark my-project.research done
+      cor mark task-name done -t "Completed the implementation"
     """
     from .search import resolve_file_fuzzy, get_file_path
 
@@ -879,6 +881,11 @@ def mark(name: str, status: str):
         due_date = (datetime.now() + timedelta(days=1)).strftime(DATE_TIME)
         post['due'] = due_date
 
+    # Append text if provided
+    if text:
+        # Add text to the content
+        post.content = post.content.rstrip() + f"\n{text}"
+
     with open(file_path, 'wb') as f:
         frontmatter.dump(post, f, sort_keys=False)
 
@@ -892,6 +899,10 @@ def mark(name: str, status: str):
     location = ""
 
     click.echo(f"{symbol} {note.title}: {old_status} → {click.style(status, bold=True)}{location}")
+    
+    if text:
+        click.echo(f"  Added note: {text}")
+
 
 
 @cli.group()
