@@ -283,7 +283,6 @@ def example_vault(ctx):
     run_cor("ref", "add", "10.48550/arXiv.2203.02155", "--no-edit")  # InstructGPT, key is optional
     
     # ===== RENAME A PROJECT =====
-    run_cor("rename", "evaluation_suite", "eval-suite", "--dry-run")
     run_cor("rename", "evaluation_suite", "eval-suite")
     
     click.echo("\n" + "="*60)
@@ -689,7 +688,7 @@ def delete(archived: bool, name: str):
     file_path = get_file_path(stem, is_archived)
 
     file_path.unlink()
-    runner = MaintenanceRunner(notes_dir, dry_run=False)
+    runner = MaintenanceRunner(notes_dir)
     runner.sync([], deleted=[str(file_path)])
     click.echo(click.style(f"Deleted {stem}.md", fg="red"))
 
@@ -1086,10 +1085,9 @@ def maintenance():
 
 
 @maintenance.command("sync")
-@click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @click.option("--all", "-a", "sync_all", is_flag=True, help="Sync all files, not just modified")
 @require_init
-def maintenance_sync(dry_run: bool, sync_all: bool):
+def maintenance_sync(sync_all: bool):
     """Synchronize vault state: archive, status, checkboxes, sorting.
 
     By default, syncs files that have been modified according to git.
@@ -1097,7 +1095,6 @@ def maintenance_sync(dry_run: bool, sync_all: bool):
 
     Examples:
         cor maintenance sync              # Sync git-modified files
-        cor maintenance sync --dry-run    # Preview changes
         cor maintenance sync --all        # Sync everything
     """
     notes_dir = get_notes_dir()
@@ -1121,11 +1118,8 @@ def maintenance_sync(dry_run: bool, sync_all: bool):
         click.echo("No files to sync.")
         return
 
-    runner = MaintenanceRunner(notes_dir, dry_run=dry_run)
+    runner = MaintenanceRunner(notes_dir)
     result = runner.sync(files)
-
-    if dry_run:
-        click.echo(click.style("=== Dry Run ===\n", bold=True, fg="yellow"))
 
     # Check for errors
     if result.errors:
@@ -1189,8 +1183,6 @@ def maintenance_sync(dry_run: bool, sync_all: bool):
 
     if not changes:
         click.echo(click.style("No changes needed.", fg="green"))
-    elif dry_run:
-        click.echo(click.style("\nNo changes made (dry run).", fg="yellow"))
     else:
         click.echo(click.style("\nDone!", fg="green"))
 

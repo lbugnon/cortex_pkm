@@ -348,25 +348,6 @@ class TestRename:
         assert "(myproj.newtask)" in content, "Project should link to renamed task"
         assert "(myproj.oldtask)" not in content, "Old link should not exist"
 
-    def test_rename_dry_run(self, runner, initialized_vault, monkeypatch):
-        """cor rename --dry-run should preview without changing."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
-        monkeypatch.chdir(initialized_vault)
-
-        import subprocess
-        subprocess.run(["git", "init"], cwd=initialized_vault, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=initialized_vault, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=initialized_vault, capture_output=True)
-
-        runner.invoke(cli, ["new", "project", "oldname", "--no_edit"])
-
-        result = runner.invoke(cli, ["rename", "oldname", "newname", "--dry-run"])
-        assert result.exit_code == 0
-
-        # Files should not be changed
-        assert (initialized_vault / "oldname.md").exists(), "Dry run should not rename"
-        assert not (initialized_vault / "newname.md").exists()
-
 
 class TestGroup:
     """Test cor group command."""
@@ -452,22 +433,6 @@ class TestGroup:
         content = (initialized_vault / "myproj.mygroup.md").read_text()
         assert "(myproj.mygroup.task1)" in content, "Group should link to task1"
         assert "(myproj.mygroup.task2)" in content, "Group should link to task2"
-
-    def test_group_dry_run(self, runner, initialized_vault, monkeypatch):
-        """cor group --dry-run should preview without changing."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
-        monkeypatch.chdir(initialized_vault)
-
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
-
-        result = runner.invoke(cli, ["group", "myproj.mygroup", "task1", "--dry-run"])
-        assert result.exit_code == 0
-        assert "Dry Run" in result.output
-
-        # Files should not be changed
-        assert (initialized_vault / "myproj.task1.md").exists(), "Dry run should not move task"
-        assert not (initialized_vault / "myproj.mygroup.md").exists(), "Dry run should not create group"
 
     def test_group_requires_project(self, runner, initialized_vault, monkeypatch):
         """cor group should fail if project doesn't exist."""
