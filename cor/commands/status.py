@@ -752,6 +752,20 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
         if parts:
             projects_with_completed.add(parts[0])
 
+    # Filter projects_with_completed by tag if specified
+    if tag:
+        # Keep only projects that match the tag filter
+        filtered_projects = set()
+        for project_name in projects_with_completed:
+            # Check if any task in this project matches the tag filter
+            for task_stem in completed_this_week:
+                if task_stem.startswith(project_name + ".") or task_stem == project_name:
+                    task = all_tasks.get(task_stem)
+                    if task and _matches_tag(task, tag, project_tags):
+                        filtered_projects.add(project_name)
+                        break
+        projects_with_completed = filtered_projects
+
     # Print week header
     if weeks == 1:
         month_name = week_start.strftime("%b")
