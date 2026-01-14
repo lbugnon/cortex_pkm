@@ -184,12 +184,12 @@ def example_vault(ctx):
         return True
     
     ## ===== PROJECT 1: Foundation Model (active) =====
-    run_cor("new", "project", "foundation_model", "--no_edit")
+    run_cor("new", "project", "foundation_model", "--no-edit")
     # Create tasks in different statuses
-    run_cor("new", "task", "foundation_model.dataset_curation", "-t", "Curate multi-domain corpus with strict filtering", "--no_edit")
-    run_cor("new", "task", "foundation_model.training_pipeline", "-t", "Stand up distributed training stack", "--no_edit")
-    run_cor("new", "task", "foundation_model.eval_harness", "-t", "Wire up eval harness for benchmarks", "--no_edit")
-    run_cor("new", "task", "foundation_model.ablation_suite", "-t", "Design ablation study matrix", "--no_edit")
+    run_cor("new", "task", "foundation_model.dataset_curation", "-t", "Curate multi-domain corpus with strict filtering", "--no-edit")
+    run_cor("new", "task", "foundation_model.training_pipeline", "-t", "Stand up distributed training stack", "--no-edit")
+    run_cor("new", "task", "foundation_model.eval_harness", "-t", "Wire up eval harness for benchmarks", "--no-edit")
+    run_cor("new", "task", "foundation_model.ablation_suite", "-t", "Design ablation study matrix", "--no-edit")
     
     # Mark tasks with different statuses
     run_cor("mark", "foundation_model.dataset_curation", "blocked")
@@ -198,49 +198,49 @@ def example_vault(ctx):
     run_cor("mark", "foundation_model.ablation_suite", "todo")
     
     # Create a task group for experiments
-    run_cor("new", "task", "foundation_model.experiments.lr_sweep", "-t", "Run LR sweep across batch sizes", "--no_edit")
-    run_cor("new", "task", "foundation_model.experiments.clip_tuning", "-t", "Tune gradient clipping thresholds", "--no_edit")
-    run_cor("new", "task", "foundation_model.experiments.checkpoint_policy", "-t", "Test checkpoint cadence impact", "--no_edit")
+    run_cor("new", "task", "foundation_model.experiments.lr_sweep", "-t", "Run LR sweep across batch sizes", "--no-edit")
+    run_cor("new", "task", "foundation_model.experiments.clip_tuning", "-t", "Tune gradient clipping thresholds", "--no-edit")
+    run_cor("new", "task", "foundation_model.experiments.checkpoint_policy", "-t", "Test checkpoint cadence impact", "--no-edit")
     
     run_cor("mark", "foundation_model.experiments.lr_sweep", "done")
     run_cor("mark", "foundation_model.experiments.clip_tuning", "active")
     run_cor("mark", "foundation_model.experiments.checkpoint_policy", "todo")
 
     # Create another task group for data
-    run_cor("new", "task", "foundation_model.data.tokenizer_refresh", "-t", "Re-train tokenizer with new domains", "--no_edit")
-    run_cor("new", "task", "foundation_model.data.safety_filter", "-t", "Iterate on safety filtering rules", "--no_edit")
+    run_cor("new", "task", "foundation_model.data.tokenizer_refresh", "-t", "Re-train tokenizer with new domains", "--no-edit")
+    run_cor("new", "task", "foundation_model.data.safety_filter", "-t", "Iterate on safety filtering rules", "--no-edit")
     
     run_cor("mark", "foundation_model.data.tokenizer_refresh", "active")
     run_cor("mark", "foundation_model.data.safety_filter", "todo")
     
     # Create notes under project
-    run_cor("new", "note", "foundation_model.lab_notes", "-t", "Daily lab notebook entries", "--no_edit")
-    run_cor("new", "note", "foundation_model.decisions", "-t", "Key modeling decisions and rationale", "--no_edit")
+    run_cor("new", "note", "foundation_model.lab_notes", "-t", "Daily lab notebook entries", "--no-edit")
+    run_cor("new", "note", "foundation_model.decisions", "-t", "Key modeling decisions and rationale", "--no-edit")
     
     # ===== PROJECT 2: Evaluation Suite (planning) =====
-    run_cor("new", "project", "evaluation_suite", "--no_edit")
+    run_cor("new", "project", "evaluation_suite", "--no-edit")
     
-    run_cor("new", "task", "evaluation_suite.benchmark_catalog", "-t", "Select core academic and industry benchmarks", "--no_edit")
-    run_cor("new", "task", "evaluation_suite.metric_defs", "-t", "Define metrics for safety and quality", "--no_edit")
-    run_cor("new", "task", "evaluation_suite.reporting", "-t", "Automate eval report generation", "--no_edit")
+    run_cor("new", "task", "evaluation_suite.benchmark_catalog", "-t", "Select core academic and industry benchmarks", "--no-edit")
+    run_cor("new", "task", "evaluation_suite.metric_defs", "-t", "Define metrics for safety and quality", "--no-edit")
+    run_cor("new", "task", "evaluation_suite.reporting", "-t", "Automate eval report generation", "--no-edit")
     
     run_cor("mark", "evaluation_suite.benchmark_catalog", "todo")
     run_cor("mark", "evaluation_suite.metric_defs", "todo")
     run_cor("mark", "evaluation_suite.reporting", "todo")
     
     # ===== PROJECT 3: Paper Draft (paused) =====
-    run_cor("new", "project", "paper", "--no_edit")
+    run_cor("new", "project", "paper", "--no-edit")
     
-    run_cor("new", "task", "paper.related_work", "-t", "Summarize adjacent scaling papers", "--no_edit")
-    run_cor("new", "task", "paper.method", "-t", "Write method section draft", "--no_edit")
-    run_cor("new", "task", "paper.experiments", "-t", "Select figures for results", "--no_edit")
+    run_cor("new", "task", "paper.related_work", "-t", "Summarize adjacent scaling papers", "--no-edit")
+    run_cor("new", "task", "paper.method", "-t", "Write method section draft", "--no-edit")
+    run_cor("new", "task", "paper.experiments", "-t", "Select figures for results", "--no-edit")
     
     run_cor("mark", "paper.related_work", "done")
     run_cor("mark", "paper.method", "active")
     run_cor("mark", "paper.experiments", "dropped")
     
     # ===== PROJECT 4: Baking (planning) =====
-    run_cor("new", "project", "baking", "--no_edit")
+    run_cor("new", "project", "baking", "--no-edit")
 
     run_cor(
         "new",
@@ -248,7 +248,7 @@ def example_vault(ctx):
         "baking.test_new_flour",
         "-t",
         "Try high-protein flour against baseline",
-        "--no_edit",
+        "--no-edit",
     )
     run_cor(
         "new",
@@ -256,7 +256,7 @@ def example_vault(ctx):
         "baking.new_recipe_from_link",
         "-t",
         "Review and plan bake from bookmarked recipe",
-        "--no_edit",
+        "--no-edit",
     )
     run_cor(
         "new",
@@ -264,15 +264,15 @@ def example_vault(ctx):
         "baking.recipe_notebook",
         "-t",
         "Panettone formula notes from shared link",
-        "--no_edit",
+        "--no-edit",
     )
 
     run_cor("mark", "baking.test_new_flour", "todo")
     run_cor("mark", "baking.new_recipe_from_link", "waiting")
     
     # ===== STANDALONE NOTES =====
-    run_cor("new", "note", "random-ideas", "-t", "Brainstorm ideas for future projects", "--no_edit")
-    run_cor("new", "note", "learning-log", "-t", "Track learning progress", "--no_edit")
+    run_cor("new", "note", "random-ideas", "-t", "Brainstorm ideas for future projects", "--no-edit")
+    run_cor("new", "note", "learning-log", "-t", "Track learning progress", "--no-edit")
     
     # ===== REFERENCES =====
     log_info("Adding reference examples...")
@@ -387,8 +387,9 @@ def config(key: str | None, value: str | None):
 @click.argument("note_type", type=click.Choice(["project", "task", "note"]))
 @click.argument("name", shell_complete=complete_name)
 @click.argument("text", nargs=-1)
+@click.option("--no-edit", is_flag=True, help="Do not open the new file in editor")
 @require_init
-def new(note_type: str, name: str, text: str | None):
+def new(note_type: str, name: str, text: str | None, no_edit: bool):
     """Create a new project, task, or note.
 
     Use dot notation for hierarchy: project.task or project.group.task
@@ -548,7 +549,7 @@ def new(note_type: str, name: str, text: str | None):
             f.seek(0)
             f.write(content)
             f.truncate()
-    else:
+    elif not no_edit:
        open_in_editor(filepath)
 
 
