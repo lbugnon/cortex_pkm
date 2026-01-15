@@ -133,6 +133,27 @@ class TestNew:
         assert (initialized_vault / "myproj.mygroup.md").exists(), "Group should be created"
         assert (initialized_vault / "myproj.mygroup.mytask.md").exists(), "Task should be created"
 
+    def test_new_task_creates_deeper_hierarchy(self, runner, initialized_vault, monkeypatch):
+        """cor new task project.group.smaller_group.task should create all intermediate groups."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        result = runner.invoke(cli, ["new", "task", "myproj.experiments.lr.sweep", "LR sweep task"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        # Check all intermediate groups are created
+        assert (initialized_vault / "myproj.experiments.md").exists(), "First group should be created"
+        assert (initialized_vault / "myproj.experiments.lr.md").exists(), "Second group should be created"
+        assert (initialized_vault / "myproj.experiments.lr.sweep.md").exists(), "Task should be created"
+        
+        # Verify parent links are correct
+        task_content = (initialized_vault / "myproj.experiments.lr.sweep.md").read_text()
+        assert "parent: myproj.experiments.lr" in task_content, "Task should have correct parent"
+        
+        # Verify task is added to immediate parent
+        parent_content = (initialized_vault / "myproj.experiments.lr.md").read_text()
+        assert "(myproj.experiments.lr.sweep)" in parent_content, "Task should be linked in parent"
+
     def test_new_project_rejects_dots(self, runner, initialized_vault, monkeypatch):
         """Project names cannot contain dots."""
         monkeypatch.chdir(initialized_vault)
