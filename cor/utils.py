@@ -234,6 +234,55 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
         project_path.write_text(content)
 
 
+def parse_checklist_items(content: str) -> list[str]:
+    """Parse checklist items from markdown content.
+    
+    Extracts task names from unchecked checklist items (- [ ] taskname).
+    Returns a list of task names (slugified from the checklist text).
+    
+    Args:
+        content: Markdown content with checklist items
+        
+    Returns:
+        List of task names extracted from checklist items
+    """
+    import re
+    
+    # Match unchecked checklist items: - [ ] some task name
+    pattern = r'^\s*-\s+\[\s*\]\s+(.+)$'
+    items = []
+    
+    for line in content.split('\n'):
+        match = re.match(pattern, line)
+        if match:
+            task_text = match.group(1).strip()
+            # Convert to slug: lowercase, replace spaces/special chars with hyphens
+            task_slug = re.sub(r'[^\w\s-]', '', task_text.lower())
+            task_slug = re.sub(r'[-\s]+', '-', task_slug).strip('-')
+            items.append(task_slug)
+    
+    return items
+
+
+def remove_checklist_items(content: str) -> str:
+    """Remove all checklist items from markdown content.
+    
+    Args:
+        content: Markdown content with checklist items
+        
+    Returns:
+        Content with checklist items removed
+    """
+    import re
+    
+    # Remove lines that are checklist items (both checked and unchecked)
+    pattern = r'^\s*-\s+\[[x\s]\]\s+.+$'
+    lines = content.split('\n')
+    filtered_lines = [line for line in lines if not re.match(pattern, line)]
+    
+    return '\n'.join(filtered_lines)
+
+
 # --- Verbosity utilities ---
 
 def log_info(message: str, min_level: int = 1) -> None:

@@ -384,13 +384,13 @@ def config(key: str | None, value: str | None):
 
 
 @cli.command()
-@click.argument("note_type", type=click.Choice(["project", "task", "note"]))
+@click.argument("note_type", type=click.Choice(["project", "task", "note", "group"]))
 @click.argument("name", shell_complete=complete_name)
 @click.argument("text", nargs=-1)
 @click.option("--no-edit", is_flag=True, help="Do not open the new file in editor")
 @require_init
 def new(note_type: str, name: str, text: str | None, no_edit: bool):
-    """Create a new project, task, or note.
+    """Create a new project, task, note, or convert task to group.
 
     Use dot notation for hierarchy: project.task or project.group.task
     Task groups auto-create if they don't exist.
@@ -401,10 +401,92 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
       cor new task my-project.implement-feature
       cor new task my-project.bugs.fix-login    # Creates bugs group
       cor new note my-project.meeting-notes
+      cor new group task.md                     # Parse task checklist into group
 
     Note: Use hyphens in names, not dots (e.g., v0-1 not v0.1)
     """
     notes_dir = get_notes_dir()
+
+    # Handle group type: parse existing task file and create subtasks
+    if note_type == "group":
+        from .utils import parse_checklist_items, remove_checklist_items
+        
+        # name should be a filename (e.g., task.md or project.task.md)
+        if name.endswith('.md'):
+            task_file = notes_dir / name
+        else:
+            task_file = notes_dir / f"{name}.md"
+        
+        if not task_file.exists():
+            raise click.ClickException(f"Task file not found: {task_file}")
+        
+        # Parse the task file
+        post = frontmatter.load(task_file)
+        
+        # Verify it's a task
+        if post.get('type') != 'task':
+            raise click.ClickException(f"File is not a task: {task_file}")
+        
+        # Extract checklist items from content
+        checklist_items = parse_checklist_items(post.content)
+        
+        if not checklist_items:
+            raise click.ClickException(
+                f"No checklist items found in {task_file}. "
+                "Add unchecked items like '- [ ] subtask-name' to the Description section."
+            )
+        
+        # Get the task stem (filename without .md)
+        task_stem = task_file.stem
+        
+        # Determine parent info
+        parent = post.get('parent')
+        if not parent:
+            raise click.ClickException(f"Task has no parent field: {task_file}")
+        
+        log_info(click.style(f"Converting {task_stem} to task group with {len(checklist_items)} subtasks...", fg="cyan"))
+        
+        # Create subtask files
+        template = get_template("task")
+        created_files = []
+        
+        for item in checklist_items:
+            subtask_filename = f"{task_stem}.{item}.md"
+            subtask_path = notes_dir / subtask_filename
+            
+            if subtask_path.exists():
+                click.echo(f"Warning: {subtask_filename} already exists, skipping")
+                continue
+            
+            # Render subtask content with task as parent
+            subtask_content = render_template(
+                template, 
+                item, 
+                parent=task_stem,
+                parent_title=format_title(task_stem.split('.')[-1])
+            )
+            
+            subtask_path.write_text(subtask_content)
+            created_files.append((item, subtask_filename))
+            log_verbose(f"  Created {subtask_filename}")
+        
+        # Remove checklist items from original task content
+        new_content = remove_checklist_items(post.content)
+        post.content = new_content
+        
+        # Write updated task file
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        # Add subtask links to the task file (now acting as group)
+        for item, subtask_filename in created_files:
+            add_task_to_project(task_file, item, subtask_filename.replace('.md', ''))
+        
+        log_info(click.style(f"\nSuccess! Created {len(created_files)} subtasks under {task_stem}", fg="green"))
+        for item, filename in created_files:
+            log_info(f"  - {filename}")
+        
+        return
 
     # Validate: dots are only for hierarchy, not within names
     parts = name.split(".")

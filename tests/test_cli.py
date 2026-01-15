@@ -153,6 +153,132 @@ class TestNew:
         content = (initialized_vault / "myproj.meeting.md").read_text()
         assert "type: note" in content, "Note should have type: note"
 
+    def test_new_group_parses_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor new group should parse checklist from task file."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create a project and task with checklist
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        # Add checklist to task
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+This is a feature with subtasks:
+
+- [ ] implement-api
+- [ ] write-tests
+- [ ] update-docs
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        # Convert task to group
+        result = runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        assert result.exit_code == 0, f"Group parsing failed: {result.output}"
+        
+        # Check subtasks created
+        assert (initialized_vault / "myproj.feature.implement-api.md").exists()
+        assert (initialized_vault / "myproj.feature.write-tests.md").exists()
+        assert (initialized_vault / "myproj.feature.update-docs.md").exists()
+
+    def test_new_group_removes_checklist_from_task(self, runner, initialized_vault, monkeypatch):
+        """cor new group should remove checklist items from original task."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] subtask1
+- [ ] subtask2
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        
+        # Check checklist removed
+        updated_content = task_file.read_text()
+        assert "- [ ] subtask1" not in updated_content
+        assert "- [ ] subtask2" not in updated_content
+
+    def test_new_group_adds_subtask_links(self, runner, initialized_vault, monkeypatch):
+        """cor new group should add links to subtasks in task file."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] api-work
+- [ ] test-work
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        
+        # Check task file has links
+        updated_content = task_file.read_text()
+        assert "(myproj.feature.api-work)" in updated_content
+        assert "(myproj.feature.test-work)" in updated_content
+
+    def test_new_group_subtasks_have_parent_link(self, runner, initialized_vault, monkeypatch):
+        """Subtasks created by group parsing should link back to group."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = "## Description\n\n- [ ] subtask1\n"
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        
+        # Check subtask has parent link
+        subtask = initialized_vault / "myproj.feature.subtask1.md"
+        content = subtask.read_text()
+        assert "parent: myproj.feature" in content
+        assert "(myproj.feature)" in content
+
+    def test_new_group_requires_task_file(self, runner, initialized_vault, monkeypatch):
+        """cor new group should fail if task file doesn't exist."""
+        monkeypatch.chdir(initialized_vault)
+
+        result = runner.invoke(cli, ["new", "group", "nonexistent.md"])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+    def test_new_group_requires_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor new group should fail if no checklist items found."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        # No checklist in task
+        result = runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        assert result.exit_code != 0
+        assert "No checklist items" in result.output
+
 
 class TestLog:
     """Test cor log command."""
