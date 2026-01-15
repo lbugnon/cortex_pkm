@@ -388,10 +388,10 @@ def config(key: str | None, value: str | None):
 @cli.command()
 @click.argument("note_type", type=click.Choice(["project", "task", "note"]))
 @click.argument("name", shell_complete=complete_name)
-@click.option("--text", "-t", type=str, help="Brief description (supports 'due <date>' and 'tag <tags>' for natural language parsing)")
-@click.option("--no_edit", is_flag=True, help="Don't open in editor")
+@click.argument("text", nargs=-1)
+@click.option("--no-edit", is_flag=True, help="Do not open the new file in editor")
 @require_init
-def new(note_type: str, name: str, text: str | None, no_edit: bool):
+def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     """Create a new project, task, or note.
 
     Use dot notation for hierarchy: project.task or project.group.task
@@ -406,9 +406,9 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
       
     \b
     Natural language dates and tags (for tasks/notes):
-      cor new task proj.task -t "finish pipeline due tomorrow"
-      cor new task proj.task -t "fix bug tag urgent ml"
-      cor new task proj.task -t "code review due next friday tag review"
+      cor new task proj.task finish pipeline due tomorrow
+      cor new task proj.task fix bug tag urgent ml
+      cor new task proj.task code review due next friday tag review
 
     Note: Use hyphens in names, not dots (e.g., v0-1 not v0.1)
     """
@@ -546,6 +546,9 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
         task_filename = filepath.stem
         add_task_to_project(project_path, task_name, task_filename)
         click.echo(f"Added to {project_path}")
+
+    # Join text tuple into a single string
+    text = " ".join(text) if text else None
 
     if text and note_type in ("task", "note"):
         # Parse natural language dates and tags

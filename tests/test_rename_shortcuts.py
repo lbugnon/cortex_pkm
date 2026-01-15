@@ -21,9 +21,9 @@ def initialized_vault(temp_vault, runner, monkeypatch):
 
 
 def test_rename_task_switch_project_keeps_leaf(runner, initialized_vault):
-    runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "p1.task1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "project", "p2", "--no_edit"]) 
+    runner.invoke(cli, ["new", "project", "p1", "--no-edit"]) 
+    runner.invoke(cli, ["new", "task", "p1.task1", "--no-edit"]) 
+    runner.invoke(cli, ["new", "project", "p2", "--no-edit"]) 
 
     result = runner.invoke(cli, ["rename", "p1.task1", "p2"]) 
     assert result.exit_code == 0, result.output
@@ -33,9 +33,9 @@ def test_rename_task_switch_project_keeps_leaf(runner, initialized_vault):
 
 
 def test_rename_task_to_group_creates_group_and_keeps_leaf(runner, initialized_vault):
-    runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "p1.task1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "project", "p2", "--no_edit"]) 
+    runner.invoke(cli, ["new", "project", "p1", "--no-edit"]) 
+    runner.invoke(cli, ["new", "task", "p1.task1", "--no-edit"]) 
+    runner.invoke(cli, ["new", "project", "p2", "--no-edit"]) 
 
     result = runner.invoke(cli, ["rename", "p1.task1", "p2.group"]) 
     assert result.exit_code == 0, result.output
@@ -46,9 +46,9 @@ def test_rename_task_to_group_creates_group_and_keeps_leaf(runner, initialized_v
 
 
 def test_rename_mixed_depth_old_to_project_keeps_leaf(runner, initialized_vault):
-    runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "p1.g1.task", "--no_edit"]) 
-    runner.invoke(cli, ["new", "project", "p2", "--no_edit"]) 
+    runner.invoke(cli, ["new", "project", "p1", "--no-edit"]) 
+    runner.invoke(cli, ["new", "task", "p1.g1.task", "--no-edit"]) 
+    runner.invoke(cli, ["new", "project", "p2", "--no-edit"]) 
 
     result = runner.invoke(cli, ["rename", "p1.g1.task", "p2"]) 
     assert result.exit_code == 0, result.output

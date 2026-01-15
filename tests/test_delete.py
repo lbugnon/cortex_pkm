@@ -21,8 +21,8 @@ def initialized_vault(temp_vault, runner, monkeypatch):
 
 
 def test_del_alias_deletes_task(runner, initialized_vault):
-    runner.invoke(cli, ["new", "project", "p1", "--no_edit"]) 
-    runner.invoke(cli, ["new", "task", "p1.task2", "--no_edit"]) 
+    runner.invoke(cli, ["new", "project", "p1", "--no-edit"]) 
+    runner.invoke(cli, ["new", "task", "p1.task2", "--no-edit"]) 
 
     result = runner.invoke(cli, ["del", "p1.task2"]) 
     assert result.exit_code == 0, result.output

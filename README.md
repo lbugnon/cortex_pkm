@@ -151,25 +151,25 @@ tags: [coding, urgent]
 
 ### Natural Language Dates and Tags
 
-The `cor new task` command supports natural language date and tag parsing using the `-t/--text` option:
+The `cor new task` command supports natural language date and tag parsing:
 
 **Due Dates**: Use `due <date>` to set a due date with natural language
 ```bash
-cor new task project.taskname -t "description due tomorrow"
-cor new task project.taskname -t "description due next friday"
-cor new task project.taskname -t "description due 2026-02-15"
+cor new task project.taskname description due tomorrow
+cor new task project.taskname description due next friday
+cor new task project.taskname description due 2026-02-15
 ```
 
 **Tags**: Use `tag <tag1> <tag2>` to add tags
 ```bash
-cor new task project.taskname -t "description tag urgent"
-cor new task project.taskname -t "description tag ml nlp research"
+cor new task project.taskname description tag urgent
+cor new task project.taskname description tag ml nlp research
 ```
 
 **Combined**: Use both in the same command
 ```bash
-cor new task project.taskname -t "finish the pipeline due tomorrow tag urgent ml"
-cor new task project.taskname -t "code review due next friday tag review quality"
+cor new task project.taskname finish the pipeline due tomorrow tag urgent ml
+cor new task project.taskname code review due next friday tag review quality
 ```
 
 Supported date formats include: tomorrow, today, next friday, in 3 days, 2026-02-15, and many more natural language expressions.

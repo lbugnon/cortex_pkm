@@ -28,12 +28,12 @@ class TestNewCommandNaturalLanguage:
         monkeypatch.chdir(initialized_vault)
 
         # Create project first
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         # Create task with natural language due date
         result = runner.invoke(
             cli,
-            ["new", "task", "myproj.mytask", "-t", "finish the pipeline due tomorrow", "--no_edit"]
+            ["new", "task", "myproj.mytask", "finish", "the", "pipeline", "due", "tomorrow", "--no-edit"]
         )
         assert result.exit_code == 0, f"New task failed: {result.output}"
         
@@ -56,12 +56,12 @@ class TestNewCommandNaturalLanguage:
         monkeypatch.chdir(initialized_vault)
 
         # Create project first
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         # Create task with tags
         result = runner.invoke(
             cli,
-            ["new", "task", "myproj.mytask", "-t", "implement feature tag ml nlp", "--no_edit"]
+            ["new", "task", "myproj.mytask", "implement", "feature", "tag", "ml", "nlp", "--no-edit"]
         )
         assert result.exit_code == 0, f"New task failed: {result.output}"
         
@@ -81,12 +81,12 @@ class TestNewCommandNaturalLanguage:
         monkeypatch.chdir(initialized_vault)
 
         # Create project first
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         # Create task with both due date and tags
         result = runner.invoke(
             cli,
-            ["new", "task", "myproj.mytask", "-t", "fix bug due tomorrow tag urgent bugfix", "--no_edit"]
+            ["new", "task", "myproj.mytask", "fix", "bug", "due", "tomorrow", "tag", "urgent", "bugfix", "--no-edit"]
         )
         assert result.exit_code == 0, f"New task failed: {result.output}"
         
@@ -112,12 +112,12 @@ class TestNewCommandNaturalLanguage:
         monkeypatch.chdir(initialized_vault)
 
         # Create project first
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         # Create task with "next friday" due date
         result = runner.invoke(
             cli,
-            ["new", "task", "myproj.mytask", "-t", "complete report due next friday", "--no_edit"]
+            ["new", "task", "myproj.mytask", "complete", "report", "due", "next", "friday", "--no-edit"]
         )
         assert result.exit_code == 0, f"New task failed: {result.output}"
         
@@ -142,12 +142,12 @@ class TestNewCommandNaturalLanguage:
         monkeypatch.chdir(initialized_vault)
 
         # Create project first
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         # Create task with normal text
         result = runner.invoke(
             cli,
-            ["new", "task", "myproj.mytask", "-t", "just a normal task description", "--no_edit"]
+            ["new", "task", "myproj.mytask", "just", "a", "normal", "task", "description", "--no-edit"]
         )
         assert result.exit_code == 0, f"New task failed: {result.output}"
         
