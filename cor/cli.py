@@ -31,6 +31,7 @@ from .utils import (
     require_init,
     log_info,
     log_verbose,
+    parse_natural_language_text,
 )
 
 HOOKS_DIR = Path(__file__).parent / "hooks"
@@ -389,7 +390,7 @@ def config(key: str | None, value: str | None):
 @click.argument("text", nargs=-1)
 @click.option("--no-edit", is_flag=True, help="Do not open the new file in editor")
 @require_init
-def new(note_type: str, name: str, text: str | None, no_edit: bool):
+def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     """Create a new project, task, or note.
 
     Use dot notation for hierarchy: project.task or project.group.task
@@ -401,10 +402,19 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
       cor new task my-project.implement-feature
       cor new task my-project.bugs.fix-login    # Creates bugs group
       cor new note my-project.meeting-notes
+      
+    \b
+    Natural language dates and tags (for tasks/notes):
+      cor new task proj.task finish pipeline due tomorrow
+      cor new task proj.task fix bug tag urgent ml
+      cor new task proj.task code review due next friday tag review
 
     Note: Use hyphens in names, not dots (e.g., v0-1 not v0.1)
     """
     notes_dir = get_notes_dir()
+
+    # Join text tuple into a single string early for easier processing
+    text = " ".join(text) if text else None
 
     # Validate: dots are only for hierarchy, not within names
     parts = name.split(".")
@@ -542,13 +552,36 @@ def new(note_type: str, name: str, text: str | None, no_edit: bool):
     text = " ".join(text)
     
     if text and note_type in ("task", "note"):
-        click.echo("Added description text.")
-        with filepath.open("r+") as f:
-            content = f.read()
-            content = content.replace("## Description\n", f"## Description\n\n{text}\n")
-            f.seek(0)
-            f.write(content)
-            f.truncate()
+        # Parse natural language dates and tags
+        cleaned_text, due_date, parsed_tags = parse_natural_language_text(text)
+        
+        # Update the description with cleaned text
+        if cleaned_text:
+            click.echo("Added description text.")
+            with filepath.open("r+") as f:
+                content = f.read()
+                content = content.replace("## Description\n", f"## Description\n\n{cleaned_text}\n")
+                f.seek(0)
+                f.write(content)
+                f.truncate()
+        
+        # Add due date if parsed
+        if due_date:
+            post = frontmatter.load(filepath)
+            post['due'] = due_date.strftime(DATE_TIME)
+            with open(filepath, 'wb') as f:
+                frontmatter.dump(post, f, sort_keys=False)
+            click.echo(f"Set due date: {due_date.strftime(DATE_TIME)}")
+        
+        # Add tags if parsed
+        if parsed_tags:
+            post = frontmatter.load(filepath)
+            existing_tags = post.get("tags", [])
+            new_tags = existing_tags + [t for t in parsed_tags if t not in existing_tags]
+            post["tags"] = new_tags
+            with open(filepath, 'wb') as f:
+                frontmatter.dump(post, f, sort_keys=False)
+            click.echo(f"Added tags: {', '.join(parsed_tags)}")
     elif not no_edit:
        open_in_editor(filepath)
 

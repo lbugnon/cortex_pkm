@@ -33,6 +33,7 @@ dependencies = [
     "habanero>=1.2",
     "arxiv>=2.0.0",
     "bibtexparser>=1.4",
+    "dateparser>=1.2",
 ]
 
 [project.urls]
