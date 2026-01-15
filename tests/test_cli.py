@@ -153,8 +153,8 @@ class TestNew:
         content = (initialized_vault / "myproj.meeting.md").read_text()
         assert "type: note" in content, "Note should have type: note"
 
-    def test_new_group_parses_checklist(self, runner, initialized_vault, monkeypatch):
-        """cor new group should parse checklist from task file."""
+    def test_expand_parses_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor expand should parse checklist from task file."""
         monkeypatch.chdir(initialized_vault)
 
         # Create a project and task with checklist
@@ -177,17 +177,17 @@ This is a feature with subtasks:
         with open(task_file, 'wb') as f:
             frontmatter.dump(post, f, sort_keys=False)
         
-        # Convert task to group
-        result = runner.invoke(cli, ["new", "group", "myproj.feature.md"])
-        assert result.exit_code == 0, f"Group parsing failed: {result.output}"
+        # Expand task to group
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
+        assert result.exit_code == 0, f"Expand failed: {result.output}"
         
         # Check subtasks created
         assert (initialized_vault / "myproj.feature.implement-api.md").exists()
         assert (initialized_vault / "myproj.feature.write-tests.md").exists()
         assert (initialized_vault / "myproj.feature.update-docs.md").exists()
 
-    def test_new_group_removes_checklist_from_task(self, runner, initialized_vault, monkeypatch):
-        """cor new group should remove checklist items from original task."""
+    def test_expand_removes_checklist_from_task(self, runner, initialized_vault, monkeypatch):
+        """cor expand should remove checklist items from original task."""
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
@@ -205,15 +205,15 @@ This is a feature with subtasks:
         with open(task_file, 'wb') as f:
             frontmatter.dump(post, f, sort_keys=False)
         
-        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        runner.invoke(cli, ["expand", "myproj.feature"])
         
         # Check checklist removed
         updated_content = task_file.read_text()
         assert "- [ ] subtask1" not in updated_content
         assert "- [ ] subtask2" not in updated_content
 
-    def test_new_group_adds_subtask_links(self, runner, initialized_vault, monkeypatch):
-        """cor new group should add links to subtasks in task file."""
+    def test_expand_adds_subtask_links(self, runner, initialized_vault, monkeypatch):
+        """cor expand should add links to subtasks in task file."""
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
@@ -231,15 +231,15 @@ This is a feature with subtasks:
         with open(task_file, 'wb') as f:
             frontmatter.dump(post, f, sort_keys=False)
         
-        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        runner.invoke(cli, ["expand", "myproj.feature"])
         
         # Check task file has links
         updated_content = task_file.read_text()
         assert "(myproj.feature.api-work)" in updated_content
         assert "(myproj.feature.test-work)" in updated_content
 
-    def test_new_group_subtasks_have_parent_link(self, runner, initialized_vault, monkeypatch):
-        """Subtasks created by group parsing should link back to group."""
+    def test_expand_subtasks_have_parent_link(self, runner, initialized_vault, monkeypatch):
+        """Subtasks created by expand should link back to group."""
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
@@ -251,7 +251,7 @@ This is a feature with subtasks:
         with open(task_file, 'wb') as f:
             frontmatter.dump(post, f, sort_keys=False)
         
-        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        runner.invoke(cli, ["expand", "myproj.feature"])
         
         # Check subtask has parent link
         subtask = initialized_vault / "myproj.feature.subtask1.md"
@@ -259,28 +259,28 @@ This is a feature with subtasks:
         assert "parent: myproj.feature" in content
         assert "(myproj.feature)" in content
 
-    def test_new_group_requires_task_file(self, runner, initialized_vault, monkeypatch):
-        """cor new group should fail if task file doesn't exist."""
+    def test_expand_requires_task_file(self, runner, initialized_vault, monkeypatch):
+        """cor expand should fail if task file doesn't exist."""
         monkeypatch.chdir(initialized_vault)
 
-        result = runner.invoke(cli, ["new", "group", "nonexistent.md"])
+        result = runner.invoke(cli, ["expand", "nonexistent"])
         assert result.exit_code != 0
-        assert "not found" in result.output.lower()
+        assert "No files found" in result.output or "not found" in result.output.lower()
 
-    def test_new_group_requires_checklist(self, runner, initialized_vault, monkeypatch):
-        """cor new group should fail if no checklist items found."""
+    def test_expand_requires_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor expand should fail if no checklist items found."""
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
         runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
         
         # No checklist in task
-        result = runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
         assert result.exit_code != 0
         assert "No checklist items" in result.output
 
-    def test_new_group_preserves_periods_in_names(self, runner, initialized_vault, monkeypatch):
-        """cor new group should preserve periods and special characters in task names."""
+    def test_expand_preserves_periods_in_names(self, runner, initialized_vault, monkeypatch):
+        """cor expand should preserve periods and special characters in task names."""
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
@@ -298,7 +298,7 @@ This is a feature with subtasks:
         with open(task_file, 'wb') as f:
             frontmatter.dump(post, f, sort_keys=False)
         
-        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        runner.invoke(cli, ["expand", "myproj.feature"])
         
         # Check that periods are preserved in filenames
         assert (initialized_vault / "myproj.feature.update-v1.2.3.md").exists()
