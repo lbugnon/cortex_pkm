@@ -238,7 +238,9 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
 def parse_checklist_items(content: str) -> list[str]:
     """Parse checklist items from markdown content.
     
-    Extracts task names from unchecked checklist items (- [ ] taskname).
+    Extracts task names from checklist items with any Cortex status symbol.
+    Supports: [ ] (todo), [.] (active), [o] (blocked), [/] (waiting), 
+              [x] (done), [~] (dropped)
     Returns a list of task names (slugified from the checklist text).
     
     Args:
@@ -247,8 +249,9 @@ def parse_checklist_items(content: str) -> list[str]:
     Returns:
         List of task names extracted from checklist items
     """
-    # Match unchecked checklist items: - [ ] some task name
-    pattern = r'^\s*-\s+\[\s*\]\s+(.+)$'
+    # Match checklist items with any Cortex status symbol
+    # Matches: - [ ], - [.], - [o], - [/], - [x], - [~]
+    pattern = r'^\s*-\s+\[[\s.ox/~]\]\s+(.+)$'
     items = []
     
     for line in content.split('\n'):
@@ -272,14 +275,17 @@ def parse_checklist_items(content: str) -> list[str]:
 def remove_checklist_items(content: str) -> str:
     """Remove all checklist items from markdown content.
     
+    Removes checklist items with any Cortex status symbol.
+    
     Args:
         content: Markdown content with checklist items
         
     Returns:
         Content with checklist items removed
     """
-    # Remove lines that are checklist items (both checked and unchecked)
-    pattern = r'^\s*-\s+\[[x\s]\]\s+.+$'
+    # Remove lines that are checklist items with any Cortex status symbol
+    # Matches: - [ ], - [.], - [o], - [/], - [x], - [~]
+    pattern = r'^\s*-\s+\[[\s.ox/~]\]\s+.+$'
     lines = content.split('\n')
     filtered_lines = [line for line in lines if not re.match(pattern, line)]
     

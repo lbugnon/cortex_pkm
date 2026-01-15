@@ -304,6 +304,50 @@ This is a feature with subtasks:
         assert (initialized_vault / "myproj.feature.update-v1.2.3.md").exists()
         assert (initialized_vault / "myproj.feature.add-config.yaml.md").exists()
 
+    def test_expand_handles_all_cortex_status_symbols(self, runner, initialized_vault, monkeypatch):
+        """cor expand should parse checklist items with all Cortex status symbols."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+Mix of different statuses:
+
+- [ ] todo-task
+- [.] active-task
+- [o] blocked-task
+- [/] waiting-task
+- [x] done-task
+- [~] dropped-task
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check that all tasks are created regardless of status symbol
+        assert (initialized_vault / "myproj.feature.todo-task.md").exists()
+        assert (initialized_vault / "myproj.feature.active-task.md").exists()
+        assert (initialized_vault / "myproj.feature.blocked-task.md").exists()
+        assert (initialized_vault / "myproj.feature.waiting-task.md").exists()
+        assert (initialized_vault / "myproj.feature.done-task.md").exists()
+        assert (initialized_vault / "myproj.feature.dropped-task.md").exists()
+        
+        # Check that all checklist items are removed
+        updated_content = task_file.read_text()
+        assert "- [ ] todo-task" not in updated_content
+        assert "- [.] active-task" not in updated_content
+        assert "- [o] blocked-task" not in updated_content
+        assert "- [/] waiting-task" not in updated_content
+        assert "- [x] done-task" not in updated_content
+        assert "- [~] dropped-task" not in updated_content
+
 
 class TestLog:
     """Test cor log command."""
