@@ -82,7 +82,7 @@ def rename(archived: bool, old_name: str, new_name: str):
     # Determine target directory early (needed for checking if target exists)
     target_dir = archive_dir if in_archive else notes_dir
     
-    # Resolve shortcut for tasks: keep leaf name, change parent to project or project.group
+    # Resolve shortcut for tasks: keep leaf name, change parent hierarchy
     # Special case: when moving within same project, only apply shortcut if target exists
     resolved_new_name = new_name
     if note.note_type == "task" and len(old_parts) >= 2:
@@ -101,7 +101,7 @@ def rename(archived: bool, old_name: str, new_name: str):
         elif len(new_parts) >= 2:
             # cor rename p1.task1 -> p2.group  => p2.group.task1
             # cor rename p1.task1 -> p2.group.subgroup  => p2.group.subgroup.task1
-            # Special behavior: when moving within same project, check if target exists
+            # Works for any depth hierarchy
             new_project = new_parts[0]
             new_parent = ".".join(new_parts)  # Full parent hierarchy
             
