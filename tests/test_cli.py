@@ -322,6 +322,32 @@ class TestTree:
         assert "and 1 note" in output, "Should show project-level note count"
         assert any("task1" in line and "and 1 note" in line for line in output.splitlines()), "Task should surface attached note count"
 
+    def test_tree_depth_option(self, runner, initialized_vault, monkeypatch):
+        """cor tree --depth should limit display depth."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create nested structure: project > g1 > sg1 > task1
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.g1.sg1.task1", "deep task"])
+        runner.invoke(cli, ["new", "task", "myproj.g1.task2", "mid task"])
+
+        # Without depth limit: should show all levels
+        result = runner.invoke(cli, ["tree", "myproj"])
+        assert result.exit_code == 0
+        assert "task1" in result.output.lower(), "Should show deeply nested task without depth limit"
+
+        # With depth=1: should not show task1 (too deep)
+        result = runner.invoke(cli, ["tree", "myproj", "--depth", "1"])
+        assert result.exit_code == 0
+        assert "g1" in result.output.lower(), "Should show first level group"
+        assert "task1" not in result.output.lower(), "Should not show deeply nested task with depth=1"
+        assert "task2" in result.output.lower(), "Should show task at depth 1"
+
+        # With depth=2: should show task1
+        result = runner.invoke(cli, ["tree", "myproj", "--depth", "2"])
+        assert result.exit_code == 0
+        assert "task1" in result.output.lower(), "Should show deeply nested task with depth=2"
+
 
 class TestRename:
     """Test cor rename command."""
