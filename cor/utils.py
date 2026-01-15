@@ -236,7 +236,7 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
         project_path.write_text(content)
 
 
-def parse_checklist_items(content: str) -> list[tuple[str, str]]:
+def parse_checklist_items(content: str) -> list[tuple[str, str, str]]:
     """Parse checklist items from markdown content.
     
     Extracts task names and their status from checklist items with any Cortex status symbol.
@@ -246,8 +246,8 @@ def parse_checklist_items(content: str) -> list[tuple[str, str]]:
         content: Markdown content with checklist items
         
     Returns:
-        List of tuples (task_name, status) extracted from checklist items
-        Example: [('design-api', 'todo'), ('completed-task', 'done')]
+        List of tuples (task_name, status, task_text) extracted from checklist items
+        Example: [('design_api', 'todo', 'Design API'), ('completed_task', 'done', 'Completed task')]
     """
     from .schema import STATUS_SYMBOLS
     
@@ -285,14 +285,14 @@ def parse_checklist_items(content: str) -> list[tuple[str, str]]:
             
             # Convert task text to slug
             task_slug = task_text.lower()
-            # Replace spaces and underscores with hyphens
-            task_slug = re.sub(r'[\s_]+', '-', task_slug)
-            # Remove characters that are invalid in filenames
-            task_slug = re.sub(r'[/<>:"|?*\\]', '', task_slug)
-            # Clean up multiple consecutive hyphens and trim
-            task_slug = re.sub(r'-+', '-', task_slug).strip('-')
+            # Replace spaces with underscores
+            task_slug = re.sub(r'\s+', '_', task_slug)
+            # Remove characters that are invalid in filenames or used as separators (dots)
+            task_slug = re.sub(r'[/<>:"|?*\\.]+', '', task_slug)
+            # Clean up multiple consecutive underscores and trim
+            task_slug = re.sub(r'_+', '_', task_slug).strip('_')
             
-            items.append((task_slug, status))
+            items.append((task_slug, status, task_text))
     
     return items
 

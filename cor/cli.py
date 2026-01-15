@@ -855,7 +855,7 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
 @cli.command()
 @click.argument("name", shell_complete=complete_task_name)
 @click.argument("status", shell_complete=complete_task_status)
-@click.option("-t", "--text", type=str, help="Append text to the note")
+@click.argument("text", nargs=-1, type=str)
 @require_init
 def mark(name: str, status: str, text: str | None):
     """Update task status.
@@ -936,6 +936,7 @@ def mark(name: str, status: str, text: str | None):
 
     # Append text if provided
     if text:
+        text = " ".join(text)
         # Add text to the content
         post.content = post.content.rstrip() + f"\n{text}"
 
@@ -959,9 +960,8 @@ def mark(name: str, status: str, text: str | None):
 
 @cli.command()
 @click.argument("name", shell_complete=complete_existing_name)
-@click.option("--archived", "-a", is_flag=True, help="Include archived files in search")
 @require_init
-def expand(name: str, archived: bool):
+def expand(name: str):
     """Expand task checklist into individual subtasks.
 
     Parses checklist items from a task's description and creates individual
@@ -992,17 +992,12 @@ def expand(name: str, archived: bool):
 
     notes_dir = get_notes_dir()
 
-    # Handle "archive/" prefix if present (from tab completion)
-    if name.startswith("archive/"):
-        name = name[8:]
-        archived = True
-
     # Remove .md extension if present
     if name.endswith('.md'):
         name = name[:-3]
 
     # Use fuzzy matching to resolve task name
-    result = resolve_file_fuzzy(name, include_archived=archived)
+    result = resolve_file_fuzzy(name, include_archived=False)
 
     if result is None:
         return  # User cancelled
@@ -1040,7 +1035,7 @@ def expand(name: str, archived: bool):
     template = get_template("task")
     created_files = []
 
-    for task_name, task_status in checklist_items:
+    for task_name, task_status, task_text in checklist_items:
         subtask_filename = f"{task_stem}.{task_name}.md"
         subtask_path = notes_dir / subtask_filename
 
@@ -1048,17 +1043,19 @@ def expand(name: str, archived: bool):
             click.echo(f"Warning: {subtask_filename} already exists, skipping")
             continue
 
-        # Render subtask content with task as parent
+        # Render subtask content with task as parent, using original task text as title
         subtask_content = render_template(
             template, 
             task_name, 
             parent=task_stem,
-            parent_title=format_title(task_stem.split('.')[-1])
+            parent_title=format_title(task_stem.split('.')[-1]),
+            title=task_text
         )
 
         # Parse the rendered content and set the status from checklist
         subtask_post = frontmatter.loads(subtask_content)
         subtask_post['status'] = task_status
+        subtask_post['title'] = task_text
         
         # Write subtask with correct status
         with open(subtask_path, 'wb') as f:
