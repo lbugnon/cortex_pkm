@@ -919,6 +919,7 @@ def expand(name: str, archived: bool):
     Examples:
       cor expand myproject.feature
       cor expand paper.experiments.md
+      cor expand -a archived-task           # Include archived files
 
     \b
     Before (task with checklist):
