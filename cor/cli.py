@@ -566,8 +566,9 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
         task_filename = filepath.stem
         add_task_to_project(project_path, task_name, task_filename)
         click.echo(f"Added to {project_path}")
-
-    text = " ".join(text)
+    
+    if text:
+        text = " ".join(text)
     
     if text and note_type in ("task", "note"):
         # Parse natural language dates and tags
