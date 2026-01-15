@@ -279,6 +279,31 @@ This is a feature with subtasks:
         assert result.exit_code != 0
         assert "No checklist items" in result.output
 
+    def test_new_group_preserves_periods_in_names(self, runner, initialized_vault, monkeypatch):
+        """cor new group should preserve periods and special characters in task names."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] update-v1.2.3
+- [ ] add-config.yaml
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["new", "group", "myproj.feature.md"])
+        
+        # Check that periods are preserved in filenames
+        assert (initialized_vault / "myproj.feature.update-v1.2.3.md").exists()
+        assert (initialized_vault / "myproj.feature.add-config.yaml.md").exists()
+
 
 class TestLog:
     """Test cor log command."""

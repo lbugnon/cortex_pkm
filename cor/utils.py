@@ -2,6 +2,7 @@
 
 import functools
 import os
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -246,8 +247,6 @@ def parse_checklist_items(content: str) -> list[str]:
     Returns:
         List of task names extracted from checklist items
     """
-    import re
-    
     # Match unchecked checklist items: - [ ] some task name
     pattern = r'^\s*-\s+\[\s*\]\s+(.+)$'
     items = []
@@ -256,9 +255,15 @@ def parse_checklist_items(content: str) -> list[str]:
         match = re.match(pattern, line)
         if match:
             task_text = match.group(1).strip()
-            # Convert to slug: lowercase, replace spaces/special chars with hyphens
-            task_slug = re.sub(r'[^\w\s-]', '', task_text.lower())
-            task_slug = re.sub(r'[-\s]+', '-', task_slug).strip('-')
+            # Convert to slug: lowercase, replace spaces with hyphens
+            # Only remove characters that are problematic in filenames
+            task_slug = task_text.lower()
+            # Replace spaces and underscores with hyphens
+            task_slug = re.sub(r'[\s_]+', '-', task_slug)
+            # Remove characters that are invalid in filenames
+            task_slug = re.sub(r'[/<>:"|?*\\]', '', task_slug)
+            # Clean up multiple consecutive hyphens and trim
+            task_slug = re.sub(r'-+', '-', task_slug).strip('-')
             items.append(task_slug)
     
     return items
@@ -273,8 +278,6 @@ def remove_checklist_items(content: str) -> str:
     Returns:
         Content with checklist items removed
     """
-    import re
-    
     # Remove lines that are checklist items (both checked and unchecked)
     pattern = r'^\s*-\s+\[[x\s]\]\s+.+$'
     lines = content.split('\n')
