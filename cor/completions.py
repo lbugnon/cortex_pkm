@@ -134,17 +134,31 @@ def complete_name(ctx, param, incomplete: str) -> list:
             if not incomplete or p.startswith(incomplete)
         ]
 
-    # One dot (project.): suggest task groups if any exist
-    if len(parts) == 2:
-        project = parts[0]
-        group_prefix = parts[1]
-        groups = get_task_groups(project)
-        if groups:
-            return [
-                CompletionItem(f"{project}.{g}.", help=f"Tasks in {g}")
-                for g in groups
-                if not group_prefix or g.startswith(group_prefix)
-            ]
+    # One or more dots (project. or project.group.): suggest child groups if any exist
+    if len(parts) >= 2:
+        # Get the current parent hierarchy (everything except the incomplete part at the end)
+        parent_prefix = ".".join(parts[:-1])
+        child_prefix = parts[-1]
+        
+        # Find all children of this parent
+        notes_dir = get_notes_dir()
+        if notes_dir.exists():
+            child_groups = set()
+            pattern = f"{parent_prefix}.*.md"
+            for p in notes_dir.glob(pattern):
+                stem_parts = p.stem.split(".")
+                parent_parts = parent_prefix.split(".")
+                # Direct child is one level deeper
+                if len(stem_parts) == len(parent_parts) + 1:
+                    child_name = stem_parts[-1]
+                    if not child_prefix or child_name.startswith(child_prefix):
+                        child_groups.add(child_name)
+            
+            if child_groups:
+                return [
+                    CompletionItem(f"{parent_prefix}.{g}.", help=f"Tasks in {g}")
+                    for g in sorted(child_groups)
+                ]
 
     return []
 
@@ -273,10 +287,11 @@ def complete_task_status(ctx, param, incomplete: str) -> list:
 
 
 def complete_new_parent(ctx, param, incomplete: str) -> list:
-    """Completion for target parent in rename: suggest projects and existing groups.
+    """Completion for target parent in rename: suggest projects and existing groups at any level.
 
     - If typing a project: suggest projects
     - If typing project.: suggest existing groups for that project
+    - If typing project.group.: suggest nested groups
     """
     projects = get_projects()
     parts = incomplete.split(".")
@@ -289,15 +304,27 @@ def complete_new_parent(ctx, param, incomplete: str) -> list:
             if not incomplete or p.startswith(incomplete)
         ]
 
-    # After dot: suggest groups under the given project
-    project = parts[0]
-    group_prefix = parts[1] if len(parts) > 1 else ""
-    if project in projects:
-        groups = get_task_groups(project)
-        return [
-            CompletionItem(f"{project}.{g}", help=f"Group {g} in {project}")
-            for g in groups
-            if not group_prefix or g.startswith(group_prefix)
-        ]
+    # After dot: suggest groups at the current level
+    parent_prefix = ".".join(parts[:-1])
+    child_prefix = parts[-1]
+    
+    notes_dir = get_notes_dir()
+    if notes_dir.exists():
+        child_groups = set()
+        pattern = f"{parent_prefix}.*.md"
+        for p in notes_dir.glob(pattern):
+            stem_parts = p.stem.split(".")
+            parent_parts = parent_prefix.split(".")
+            # Direct child is one level deeper
+            if len(stem_parts) == len(parent_parts) + 1:
+                child_name = stem_parts[-1]
+                if not child_prefix or child_name.startswith(child_prefix):
+                    child_groups.add(child_name)
+        
+        if child_groups:
+            return [
+                CompletionItem(f"{parent_prefix}.{g}", help=f"Group {g}")
+                for g in sorted(child_groups)
+            ]
 
     return []
