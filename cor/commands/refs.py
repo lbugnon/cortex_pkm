@@ -1,6 +1,8 @@
 """Reference management commands for bibliography."""
 
 from pathlib import Path
+from datetime import datetime 
+from ..schema import DATE_TIME
 
 import click
 
@@ -36,30 +38,8 @@ def _create_ref_file(
     # Build plain markdown content
     authors_str = ", ".join(result.authors) if result.authors else "Unknown"
     abstract = result.abstract or "_Abstract not available._"
-
-    content = f"""# {result.title}
-
-{authors_str}
-
-
-
-## Abstract
-
-{abstract}
-
-## Notes
-
-<!-- Your notes about this paper -->
-
-## Key Points
-
-- 
-
-## Quotes
-
-> 
-"""
-
+    # load contet from assets
+    content = open(Path(__file__).parent.parent / "assets" / "ref.md").read().format(title=result.title, authors=authors_str, abstract=abstract, date=datetime.now().strftime(DATE_TIME))
     ref_path.write_text(content)
     return ref_path
 
