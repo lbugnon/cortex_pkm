@@ -235,31 +235,54 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
         project_path.write_text(content)
 
 
-def parse_checklist_items(content: str) -> list[str]:
+def parse_checklist_items(content: str) -> list[tuple[str, str]]:
     """Parse checklist items from markdown content.
     
-    Extracts task names from checklist items with any Cortex status symbol.
-    Supports: [ ] (todo), [.] (active), [o] (blocked), [/] (waiting), 
-              [x] (done), [~] (dropped)
-    Returns a list of task names (slugified from the checklist text).
+    Extracts task names and their status from checklist items with any Cortex status symbol.
+    Uses STATUS_SYMBOLS from schema.py to recognize symbols.
     
     Args:
         content: Markdown content with checklist items
         
     Returns:
-        List of task names extracted from checklist items
+        List of tuples (task_name, status) extracted from checklist items
+        Example: [('design-api', 'todo'), ('completed-task', 'done')]
     """
-    # Match checklist items with any Cortex status symbol
-    # Matches: - [ ], - [.], - [o], - [/], - [x], - [~]
-    pattern = r'^\s*-\s+\[[\s.ox/~]\]\s+(.+)$'
+    from .schema import STATUS_SYMBOLS
+    
+    # Build reverse mapping: symbol -> status
+    symbol_to_status = {symbol: status for status, symbol in STATUS_SYMBOLS.items()}
+    
+    # Build regex pattern from STATUS_SYMBOLS to match any valid symbol
+    # Extract the character inside brackets from each symbol
+    symbol_chars = set()
+    for symbol in STATUS_SYMBOLS.values():
+        # Extract character between [ and ] (e.g., '[x]' -> 'x', '[ ]' -> ' ')
+        char = symbol[1]
+        symbol_chars.add(re.escape(char))
+    
+    # Build pattern: - [any_symbol_char] task text
+    pattern = r'^\s*-\s+\[([' + ''.join(symbol_chars) + r'])\]\s+(.+)$'
     items = []
     
     for line in content.split('\n'):
         match = re.match(pattern, line)
         if match:
-            task_text = match.group(1).strip()
-            # Convert to slug: lowercase, replace spaces with hyphens
-            # Only remove characters that are problematic in filenames
+            symbol_char = match.group(1)
+            task_text = match.group(2).strip()
+            
+            # Map symbol character back to status
+            status = None
+            for status_name, symbol in STATUS_SYMBOLS.items():
+                if symbol[1] == symbol_char:
+                    status = status_name
+                    break
+            
+            if status is None:
+                # Fallback to 'todo' if symbol not recognized
+                status = 'todo'
+            
+            # Convert task text to slug
             task_slug = task_text.lower()
             # Replace spaces and underscores with hyphens
             task_slug = re.sub(r'[\s_]+', '-', task_slug)
@@ -267,7 +290,8 @@ def parse_checklist_items(content: str) -> list[str]:
             task_slug = re.sub(r'[/<>:"|?*\\]', '', task_slug)
             # Clean up multiple consecutive hyphens and trim
             task_slug = re.sub(r'-+', '-', task_slug).strip('-')
-            items.append(task_slug)
+            
+            items.append((task_slug, status))
     
     return items
 
@@ -276,6 +300,7 @@ def remove_checklist_items(content: str) -> str:
     """Remove all checklist items from markdown content.
     
     Removes checklist items with any Cortex status symbol.
+    Uses STATUS_SYMBOLS from schema.py.
     
     Args:
         content: Markdown content with checklist items
@@ -283,9 +308,15 @@ def remove_checklist_items(content: str) -> str:
     Returns:
         Content with checklist items removed
     """
-    # Remove lines that are checklist items with any Cortex status symbol
-    # Matches: - [ ], - [.], - [o], - [/], - [x], - [~]
-    pattern = r'^\s*-\s+\[[\s.ox/~]\]\s+.+$'
+    from .schema import STATUS_SYMBOLS
+    
+    # Build regex pattern from STATUS_SYMBOLS
+    symbol_chars = set()
+    for symbol in STATUS_SYMBOLS.values():
+        char = symbol[1]
+        symbol_chars.add(re.escape(char))
+    
+    pattern = r'^\s*-\s+\[([' + ''.join(symbol_chars) + r'])\]\s+.+$'
     lines = content.split('\n')
     filtered_lines = [line for line in lines if not re.match(pattern, line)]
     

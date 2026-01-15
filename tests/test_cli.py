@@ -347,7 +347,25 @@ Mix of different statuses:
         assert "- [/] waiting-task" not in updated_content
         assert "- [x] done-task" not in updated_content
         assert "- [~] dropped-task" not in updated_content
-
+        
+        # Check that tasks have the correct status from their checklist symbols
+        todo_task = frontmatter.load(initialized_vault / "myproj.feature.todo-task.md")
+        assert todo_task['status'] == 'todo'
+        
+        active_task = frontmatter.load(initialized_vault / "myproj.feature.active-task.md")
+        assert active_task['status'] == 'active'
+        
+        blocked_task = frontmatter.load(initialized_vault / "myproj.feature.blocked-task.md")
+        assert blocked_task['status'] == 'blocked'
+        
+        waiting_task = frontmatter.load(initialized_vault / "myproj.feature.waiting-task.md")
+        assert waiting_task['status'] == 'waiting'
+        
+        done_task = frontmatter.load(initialized_vault / "myproj.feature.done-task.md")
+        assert done_task['status'] == 'done'
+        
+        dropped_task = frontmatter.load(initialized_vault / "myproj.feature.dropped-task.md")
+        assert dropped_task['status'] == 'dropped'
 
 class TestLog:
     """Test cor log command."""

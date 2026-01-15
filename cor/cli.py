@@ -988,8 +988,8 @@ def expand(name: str, archived: bool):
     template = get_template("task")
     created_files = []
 
-    for item in checklist_items:
-        subtask_filename = f"{task_stem}.{item}.md"
+    for task_name, task_status in checklist_items:
+        subtask_filename = f"{task_stem}.{task_name}.md"
         subtask_path = notes_dir / subtask_filename
 
         if subtask_path.exists():
@@ -999,14 +999,21 @@ def expand(name: str, archived: bool):
         # Render subtask content with task as parent
         subtask_content = render_template(
             template, 
-            item, 
+            task_name, 
             parent=task_stem,
             parent_title=format_title(task_stem.split('.')[-1])
         )
 
-        subtask_path.write_text(subtask_content)
-        created_files.append((item, subtask_filename))
-        log_verbose(f"  Created {subtask_filename}")
+        # Parse the rendered content and set the status from checklist
+        subtask_post = frontmatter.loads(subtask_content)
+        subtask_post['status'] = task_status
+        
+        # Write subtask with correct status
+        with open(subtask_path, 'wb') as f:
+            frontmatter.dump(subtask_post, f, sort_keys=False)
+        
+        created_files.append((task_name, subtask_filename, task_status))
+        log_verbose(f"  Created {subtask_filename} (status: {task_status})")
 
     # Remove checklist items from original task content
     new_content = remove_checklist_items(post.content)
@@ -1017,12 +1024,12 @@ def expand(name: str, archived: bool):
         frontmatter.dump(post, f, sort_keys=False)
 
     # Add subtask links to the task file (now acting as group)
-    for item, subtask_filename in created_files:
-        add_task_to_project(task_file, item, subtask_filename.replace('.md', ''))
+    for task_name, subtask_filename, _ in created_files:
+        add_task_to_project(task_file, task_name, subtask_filename.replace('.md', ''))
 
     log_info(click.style(f"\nSuccess! Created {len(created_files)} subtasks under {task_stem}", fg="green"))
-    for item, filename in created_files:
-        log_info(f"  - {filename}")
+    for task_name, filename, status in created_files:
+        log_info(f"  - {filename} (status: {status})")
 
 
 @cli.group()
