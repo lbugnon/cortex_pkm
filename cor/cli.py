@@ -414,6 +414,9 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     """
     notes_dir = get_notes_dir()
 
+    # Join text tuple into a single string early for easier processing
+    text = " ".join(text) if text else None
+
     # Validate: dots are only for hierarchy, not within names
     parts = name.split(".")
     for part in parts:
@@ -546,9 +549,6 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
         task_filename = filepath.stem
         add_task_to_project(project_path, task_name, task_filename)
         click.echo(f"Added to {project_path}")
-
-    # Join text tuple into a single string
-    text = " ".join(text) if text else None
 
     if text and note_type in ("task", "note"):
         # Parse natural language dates and tags
