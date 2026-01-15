@@ -153,6 +153,219 @@ class TestNew:
         content = (initialized_vault / "myproj.meeting.md").read_text()
         assert "type: note" in content, "Note should have type: note"
 
+    def test_expand_parses_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor expand should parse checklist from task file."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create a project and task with checklist
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        # Add checklist to task
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+This is a feature with subtasks:
+
+- [ ] implement-api
+- [ ] write-tests
+- [ ] update-docs
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        # Expand task to group
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
+        assert result.exit_code == 0, f"Expand failed: {result.output}"
+        
+        # Check subtasks created
+        assert (initialized_vault / "myproj.feature.implement-api.md").exists()
+        assert (initialized_vault / "myproj.feature.write-tests.md").exists()
+        assert (initialized_vault / "myproj.feature.update-docs.md").exists()
+
+    def test_expand_removes_checklist_from_task(self, runner, initialized_vault, monkeypatch):
+        """cor expand should remove checklist items from original task."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] subtask1
+- [ ] subtask2
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check checklist removed
+        updated_content = task_file.read_text()
+        assert "- [ ] subtask1" not in updated_content
+        assert "- [ ] subtask2" not in updated_content
+
+    def test_expand_adds_subtask_links(self, runner, initialized_vault, monkeypatch):
+        """cor expand should add links to subtasks in task file."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] api-work
+- [ ] test-work
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check task file has links
+        updated_content = task_file.read_text()
+        assert "(myproj.feature.api-work)" in updated_content
+        assert "(myproj.feature.test-work)" in updated_content
+
+    def test_expand_subtasks_have_parent_link(self, runner, initialized_vault, monkeypatch):
+        """Subtasks created by expand should link back to group."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = "## Description\n\n- [ ] subtask1\n"
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check subtask has parent link
+        subtask = initialized_vault / "myproj.feature.subtask1.md"
+        content = subtask.read_text()
+        assert "parent: myproj.feature" in content
+        assert "(myproj.feature)" in content
+
+    def test_expand_requires_task_file(self, runner, initialized_vault, monkeypatch):
+        """cor expand should fail if task file doesn't exist."""
+        monkeypatch.chdir(initialized_vault)
+
+        result = runner.invoke(cli, ["expand", "nonexistent"])
+        assert result.exit_code != 0
+        assert "No files found" in result.output or "not found" in result.output.lower()
+
+    def test_expand_requires_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor expand should fail if no checklist items found."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        # No checklist in task
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
+        assert result.exit_code != 0
+        assert "No checklist items" in result.output
+
+    def test_expand_preserves_periods_in_names(self, runner, initialized_vault, monkeypatch):
+        """cor expand should preserve periods and special characters in task names."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] update-v1.2.3
+- [ ] add-config.yaml
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check that periods are preserved in filenames
+        assert (initialized_vault / "myproj.feature.update-v1.2.3.md").exists()
+        assert (initialized_vault / "myproj.feature.add-config.yaml.md").exists()
+
+    def test_expand_handles_all_cortex_status_symbols(self, runner, initialized_vault, monkeypatch):
+        """cor expand should parse checklist items with all Cortex status symbols."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+Mix of different statuses:
+
+- [ ] todo-task
+- [.] active-task
+- [o] blocked-task
+- [/] waiting-task
+- [x] done-task
+- [~] dropped-task
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check that all tasks are created regardless of status symbol
+        assert (initialized_vault / "myproj.feature.todo-task.md").exists()
+        assert (initialized_vault / "myproj.feature.active-task.md").exists()
+        assert (initialized_vault / "myproj.feature.blocked-task.md").exists()
+        assert (initialized_vault / "myproj.feature.waiting-task.md").exists()
+        assert (initialized_vault / "myproj.feature.done-task.md").exists()
+        assert (initialized_vault / "myproj.feature.dropped-task.md").exists()
+        
+        # Check that all checklist items are removed
+        updated_content = task_file.read_text()
+        assert "- [ ] todo-task" not in updated_content
+        assert "- [.] active-task" not in updated_content
+        assert "- [o] blocked-task" not in updated_content
+        assert "- [/] waiting-task" not in updated_content
+        assert "- [x] done-task" not in updated_content
+        assert "- [~] dropped-task" not in updated_content
+        
+        # Check that tasks have the correct status from their checklist symbols
+        todo_task = frontmatter.load(initialized_vault / "myproj.feature.todo-task.md")
+        assert todo_task['status'] == 'todo'
+        
+        active_task = frontmatter.load(initialized_vault / "myproj.feature.active-task.md")
+        assert active_task['status'] == 'active'
+        
+        blocked_task = frontmatter.load(initialized_vault / "myproj.feature.blocked-task.md")
+        assert blocked_task['status'] == 'blocked'
+        
+        waiting_task = frontmatter.load(initialized_vault / "myproj.feature.waiting-task.md")
+        assert waiting_task['status'] == 'waiting'
+        
+        done_task = frontmatter.load(initialized_vault / "myproj.feature.done-task.md")
+        assert done_task['status'] == 'done'
+        
+        dropped_task = frontmatter.load(initialized_vault / "myproj.feature.dropped-task.md")
+        assert dropped_task['status'] == 'dropped'
 
 class TestLog:
     """Test cor log command."""

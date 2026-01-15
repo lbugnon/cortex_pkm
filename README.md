@@ -131,6 +131,7 @@ tags: [coding, urgent]
 |---------|-------------|
 | `cor init` | Initialize vault (creates structure, initializes git, installs hooks) |
 | `cor new <type> <name>` | Create file from template (project, task, note) |
+| `cor expand <task>` | Expand task checklist into individual subtasks |
 | `cor edit <name>` | Open existing file in editor (use `-a` to include archived) |
 | `cor mark <name> <status>` | Change task status (todo, active, blocked, done, dropped) |
 | `cor sync` | Pull, commit all changes, and push to remote |
@@ -307,6 +308,32 @@ cor rename old-project new-project --dry-run
 # Commit the changes
 git add -A && git commit -m "Rename project"
 ```
+
+### Converting Tasks to Groups
+
+When designing complex features, you might start with a single task and then realize it needs to be broken down. Cortex makes this easy by expanding checklist items into individual subtasks:
+
+**Before** - Single task with checklist (`my-project.feature.md`):
+```markdown
+## Description
+
+Implement new authentication feature:
+
+- [ ] design-api
+- [ ] implement-backend
+- [ ] write-tests
+- [ ] update-documentation
+```
+
+**After running** `cor expand my-project.feature`:
+- Creates `my-project.feature.design-api.md`
+- Creates `my-project.feature.implement-backend.md`
+- Creates `my-project.feature.write-tests.md`
+- Creates `my-project.feature.update-documentation.md`
+- Updates `my-project.feature.md` with proper task links
+- Removes the original checklist
+
+The task becomes a proper task group with full hierarchy and linking support.
 
 ### Completion Configuration
 
