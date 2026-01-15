@@ -81,8 +81,8 @@ def main():
 
     notes_dir = get_vault_path()
 
-    # Run maintenance sync (not dry run - actually apply changes)
-    runner = MaintenanceRunner(notes_dir, dry_run=False)
+    # Run maintenance sync
+    runner = MaintenanceRunner(notes_dir)
     result = runner.sync(staged_files, renamed_files, deleted_files)
     # Check for validation errors
     if result.errors:

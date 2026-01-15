@@ -96,7 +96,7 @@ class TestNew:
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         # Create task
-        result = runner.invoke(cli, ["new", "task", "myproj.mytask", "--no-edit"])
+        result = runner.invoke(cli, ["new", "task", "myproj.mytask", "some text"])
         assert result.exit_code == 0, f"New task failed: {result.output}"
         assert (initialized_vault / "myproj.mytask.md").exists()
 
@@ -105,7 +105,7 @@ class TestNew:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.mytask", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.mytask", "task work"])
 
         content = (initialized_vault / "myproj.mytask.md").read_text()
         assert "parent: myproj" in content, "Task should have parent field"
@@ -116,7 +116,7 @@ class TestNew:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.mytask", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.mytask", "task work"])
 
         content = (initialized_vault / "myproj.md").read_text()
         assert "(myproj.mytask)" in content, "Project should link to task"
@@ -127,7 +127,7 @@ class TestNew:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        result = runner.invoke(cli, ["new", "task", "myproj.mygroup.mytask", "--no-edit"])
+        result = runner.invoke(cli, ["new", "task", "myproj.mygroup.mytask", "task work"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert (initialized_vault / "myproj.mygroup.md").exists(), "Group should be created"
@@ -145,7 +145,7 @@ class TestNew:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        result = runner.invoke(cli, ["new", "note", "myproj.meeting", "--no-edit"])
+        result = runner.invoke(cli, ["new", "note", "myproj.meeting", "meeting notes"])
 
         assert result.exit_code == 0, f"New note failed: {result.output}"
         assert (initialized_vault / "myproj.meeting.md").exists()
@@ -158,10 +158,10 @@ class TestLog:
     """Test cor log command."""
 
     def test_log_appends_to_inbox(self, runner, initialized_vault, monkeypatch):
-        """cor log -t should append bullet to backlog inbox."""
+        """cor log should append bullet to backlog inbox."""
         monkeypatch.chdir(initialized_vault)
 
-        result = runner.invoke(cli, ["log", "-t", "Capture an idea"])
+        result = runner.invoke(cli, ["log", "Capture an idea"])
         assert result.exit_code == 0, f"Log failed: {result.output}"
 
         content = (initialized_vault / "backlog.md").read_text()
@@ -181,7 +181,7 @@ modified: {today}
 # Backlog
 """)
 
-        result = runner.invoke(cli, ["log", "-t", "New backlog item"])
+        result = runner.invoke(cli, ["log", "New backlog item"])
         assert result.exit_code == 0, f"Log failed: {result.output}"
 
         content = backlog_path.read_text()
@@ -220,7 +220,7 @@ class TestStatus:
 
         # Create a task with past due date
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.overdue", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.overdue", "task work"])
 
         task_path = initialized_vault / "myproj.overdue.md"
         content = task_path.read_text()
@@ -264,8 +264,8 @@ class TestTree:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["tree", "myproj"])
         assert result.exit_code == 0, f"Tree failed: {result.output}"
@@ -277,13 +277,29 @@ class TestTree:
         monkeypatch.chdir(initialized_vault)
         runner.invoke(cli, ["init", "--yes"])
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.group.subtask", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.subtask", "task work"])
 
         result = runner.invoke(cli, ["tree", "myproj"])
         assert result.exit_code == 0
         # Should show group and subtask
         assert "Group" in result.output or "group" in result.output.lower()
         assert "Subtask" in result.output or "subtask" in result.output.lower()
+
+    def test_tree_shows_note_count(self, runner, initialized_vault, monkeypatch):
+        """cor tree should mention attached notes."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "note", "myproj.brainstorm", "ideas"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "note", "myproj.task1.context", "context"])
+
+        result = runner.invoke(cli, ["tree", "myproj"])
+        assert result.exit_code == 0, f"Tree failed: {result.output}"
+
+        output = result.output.lower()
+        assert "and 1 note" in output, "Should show project-level note count"
+        assert any("task1" in line and "and 1 note" in line for line in output.splitlines()), "Task should surface attached note count"
 
 
 class TestRename:
@@ -300,7 +316,7 @@ class TestRename:
         subprocess.run(["git", "config", "user.name", "Test"], cwd=initialized_vault, capture_output=True)
 
         runner.invoke(cli, ["new", "project", "oldname", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "oldname.task1", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "oldname.task1", "task work"])
 
         result = runner.invoke(cli, ["rename", "oldname", "newname"])
         assert result.exit_code == 0, f"Rename failed: {result.output}"
@@ -321,7 +337,7 @@ class TestRename:
         subprocess.run(["git", "config", "user.name", "Test"], cwd=initialized_vault, capture_output=True)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.oldtask", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.oldtask", "task work"])
 
         # Rename task
         result = runner.invoke(cli, ["rename", "myproj.oldtask", "myproj.newtask"])
@@ -331,25 +347,6 @@ class TestRename:
         content = (initialized_vault / "myproj.md").read_text()
         assert "(myproj.newtask)" in content, "Project should link to renamed task"
         assert "(myproj.oldtask)" not in content, "Old link should not exist"
-
-    def test_rename_dry_run(self, runner, initialized_vault, monkeypatch):
-        """cor rename --dry-run should preview without changing."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
-        monkeypatch.chdir(initialized_vault)
-
-        import subprocess
-        subprocess.run(["git", "init"], cwd=initialized_vault, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=initialized_vault, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=initialized_vault, capture_output=True)
-
-        runner.invoke(cli, ["new", "project", "oldname", "--no-edit"])
-
-        result = runner.invoke(cli, ["rename", "oldname", "newname", "--dry-run"])
-        assert result.exit_code == 0
-
-        # Files should not be changed
-        assert (initialized_vault / "oldname.md").exists(), "Dry run should not rename"
-        assert not (initialized_vault / "newname.md").exists()
 
 
 class TestGroup:
@@ -361,8 +358,8 @@ class TestGroup:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.refactor", "task1", "task2"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -376,8 +373,8 @@ class TestGroup:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1", "task2"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -394,7 +391,7 @@ class TestGroup:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -410,7 +407,7 @@ class TestGroup:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -426,8 +423,8 @@ class TestGroup:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1", "task2"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -436,22 +433,6 @@ class TestGroup:
         content = (initialized_vault / "myproj.mygroup.md").read_text()
         assert "(myproj.mygroup.task1)" in content, "Group should link to task1"
         assert "(myproj.mygroup.task2)" in content, "Group should link to task2"
-
-    def test_group_dry_run(self, runner, initialized_vault, monkeypatch):
-        """cor group --dry-run should preview without changing."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
-        monkeypatch.chdir(initialized_vault)
-
-        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
-
-        result = runner.invoke(cli, ["group", "myproj.mygroup", "task1", "--dry-run"])
-        assert result.exit_code == 0
-        assert "Dry Run" in result.output
-
-        # Files should not be changed
-        assert (initialized_vault / "myproj.task1.md").exists(), "Dry run should not move task"
-        assert not (initialized_vault / "myproj.mygroup.md").exists(), "Dry run should not create group"
 
     def test_group_requires_project(self, runner, initialized_vault, monkeypatch):
         """cor group should fail if project doesn't exist."""
@@ -490,8 +471,8 @@ class TestGroup:
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.existinggroup", "--no-edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.existinggroup", "some text"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task info"])
 
         result = runner.invoke(cli, ["group", "myproj.existinggroup", "task1"])
         assert result.exit_code != 0
