@@ -176,6 +176,8 @@ def show_tree(
     verbose: bool = False,
     all_notes: list | None = None,
     note_counts: dict[str, int] | None = None,
+    max_depth: int | None = None,
+    current_depth: int = 0,
 ):
     """
     Unified tree rendering function.
@@ -192,6 +194,8 @@ def show_tree(
         verbose: Whether to show description text under tasks
         all_notes: List of all notes for dependency resolution (optional)
         note_counts: Optional mapping of parent stem -> number of attached notes
+        max_depth: Maximum depth to display (None for unlimited)
+        current_depth: Current depth in the tree (used internally for recursion)
     """
     note_counts = note_counts or {}
 
@@ -278,21 +282,24 @@ def show_tree(
                         if capture is not None:
                             capture.append(click.unstyle(styled_line))
 
-        # Recurse for children
-        show_tree(
-            task.path.stem,
-            tasks_by_parent,
-            child_prefix,
-            filter_fn=filter_fn,
-            sort_fn=sort_fn,
-            render_fn=render_fn,
-            show_separators=show_separators,
-            separator_transitions=separator_transitions,
-            capture=capture,
-            verbose=verbose,
-            all_notes=all_notes,
-            note_counts=note_counts,
-        )
+        # Recurse for children only if within depth limit
+        if max_depth is None or current_depth < max_depth:
+            show_tree(
+                task.path.stem,
+                tasks_by_parent,
+                child_prefix,
+                filter_fn=filter_fn,
+                sort_fn=sort_fn,
+                render_fn=render_fn,
+                show_separators=show_separators,
+                separator_transitions=separator_transitions,
+                capture=capture,
+                verbose=verbose,
+                all_notes=all_notes,
+                note_counts=note_counts,
+                max_depth=max_depth,
+                current_depth=current_depth + 1,
+            )
 
         prev_status = task.status
 
@@ -924,9 +931,10 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
 
 @click.command(short_help="Show a project's task tree")
 @click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
+@click.option("--depth", "-d", type=int, default=None, help="Maximum depth to display (default: unlimited)")
 @click.argument("project", shell_complete=complete_project)
 @require_init
-def tree(verbose: bool, project: str):
+def tree(verbose: bool, depth: int | None, project: str):
     """Show task tree for a project.
 
     Displays tasks in a tree view with [x] or [ ] indicating status.
@@ -934,7 +942,8 @@ def tree(verbose: bool, project: str):
     \b
     Example:
       cor tree myproject
-      cor tree myproject -v  # Show descriptions
+      cor tree myproject -v         # Show descriptions
+      cor tree myproject --depth 2  # Limit to 2 levels
     """
     notes_dir = get_notes_dir()
 
@@ -1001,6 +1010,7 @@ def tree(verbose: bool, project: str):
             verbose=verbose,
             all_notes=notes,
             note_counts=note_counts,
+            max_depth=depth,
         )
 
 

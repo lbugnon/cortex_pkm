@@ -393,14 +393,15 @@ def config(key: str | None, value: str | None):
 def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     """Create a new project, task, or note.
 
-    Use dot notation for hierarchy: project.task or project.group.task
+    Use dot notation for hierarchy: project.task, project.group.task, or deeper
     Task groups auto-create if they don't exist.
 
     \b
     Examples:
       cor new project my-project
       cor new task my-project.implement-feature
-      cor new task my-project.bugs.fix-login    # Creates bugs group
+      cor new task my-project.bugs.fix-login              # Creates bugs group
+      cor new task my-project.experiments.lr.sweep        # Creates nested groups
       cor new note my-project.meeting-notes
       
     \b
@@ -433,31 +434,32 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
             "Use hyphens instead (e.g., 'v0-1' not 'v0.1')."
         )
 
-    # Parse dot notation for task/note: "project.taskname" or "project.group.taskname"
+    # Parse dot notation for task/note: "project.taskname" or "project.group.taskname" or "project.group.smaller_group.task"
     task_name = name
-    task_group, project = None, None
+    parent_hierarchy, project = None, None
     if note_type in ("task", "note") and "." in name:
         # Reuse parts from validation above
         if len(parts) == 2:
             # project.task
             project = parts[0]
             task_name = parts[1]
-        elif len(parts) == 3:
-            # project.group.task
+        elif len(parts) >= 3:
+            # project.group.task or project.group.smaller_group.task (or deeper)
             project = parts[0]
-            task_group = parts[1]
-            task_name = parts[2]
+            parent_hierarchy = ".".join(parts[:-1])  # Everything except the last part
+            task_name = parts[-1]
         else:
             raise click.ClickException(
-                "Invalid name: use 'project.task' or 'project.group.task' format."
+                "Invalid name: use 'project.task', 'project.group.task', or deeper hierarchy format."
             )
 
     # Build filename
     if note_type == "project":
         filename = f"{name}.md"
     else:
-        if task_group:
-            filename = f"{project}.{task_group}.{task_name}.md"
+        if parent_hierarchy:
+            # Use full parent hierarchy: project.group.smaller_group.task
+            filename = f"{parent_hierarchy}.{task_name}.md"
         elif project:
             filename = f"{project}.{task_name}.md"
         else:
@@ -478,10 +480,11 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     parent = None
     parent_title = None
     if note_type in ("task", "note"):
-        if task_group:
-            # Task/note under a group: parent is the group
-            parent = f"{project}.{task_group}"
-            parent_title = format_title(task_group)
+        if parent_hierarchy:
+            # Task/note under a parent hierarchy (group or deeper)
+            parent = parent_hierarchy
+            # Extract the last component for the title (immediate parent)
+            parent_title = format_title(parent_hierarchy.split(".")[-1])
         elif project:
             # Task/note under project: parent is the project
             parent = project
@@ -492,55 +495,70 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     filepath.write_text(content)
     log_info(f"Created {note_type} at {filepath}")
 
-    # Handle task group hierarchy
-    if note_type == "task" and task_group:
-        group_filename = f"{project}.{task_group}"
-        group_path = notes_dir / f"{group_filename}.md"
-        archive_dir = notes_dir / "archive"
-
-        # Check if group exists in archive (done/dropped) - unarchive it
-        archived_group_path = archive_dir / f"{group_filename}.md"
-        if archived_group_path.exists() and not group_path.exists():
-            # Move from archive back to notes
-            shutil.move(str(archived_group_path), group_path)
-
-            # Update status to todo
-            post = frontmatter.load(group_path)
-            old_status = post.get('status', 'done')
-            post['status'] = 'todo'
-            with open(group_path, 'wb') as f:
-                frontmatter.dump(post, f, sort_keys=False)
-
-            click.echo(f"Unarchived {group_filename} ({old_status} → todo)")
-
-            # Update link in parent project file
-            project_path = notes_dir / f"{project}.md"
-            if project_path.exists():
-                content = project_path.read_text()
-                # Update link from archive/ to direct
-                pattern = rf'(\[[^\]]+\]\()archive/{re.escape(group_filename)}(\))'
-                replacement = rf'\g<1>{group_filename}\g<2>'
-                new_content = re.sub(pattern, replacement, content)
-                if new_content != content:
-                    project_path.write_text(new_content)
-
-        # Create group file if it doesn't exist
-        if not group_path.exists():
-            group_template = get_template("task")
-            # Group's parent is the project
-            group_content = render_template(group_template, task_group, project, format_title(project))
-            group_path.write_text(group_content)
-            click.echo(f"Created {group_path}")
-
-            # Add group to project's Tasks section
-            project_path = notes_dir / f"{project}.md"
-            add_task_to_project(project_path, task_group, group_filename)
-            click.echo(f"Added to {project_path}")
-
-        # Add task to group's Tasks section
+    # Handle task group hierarchy - auto-create missing parent groups
+    if note_type == "task" and parent_hierarchy:
+        # For hierarchy like project.group.smaller_group.task, we need to ensure:
+        # 1. project.group exists
+        # 2. project.group.smaller_group exists
+        # 3. Add task to the immediate parent
+        
+        # Split parent hierarchy into parts
+        parent_parts = parent_hierarchy.split(".")
+        
+        # Create all missing parent groups in the hierarchy
+        for i in range(1, len(parent_parts)):
+            # Build the group name at this level
+            group_stem = ".".join(parent_parts[:i+1])
+            group_path = notes_dir / f"{group_stem}.md"
+            archive_dir = notes_dir / "archive"
+            
+            # Check if group exists in archive (done/dropped) - unarchive it
+            archived_group_path = archive_dir / f"{group_stem}.md"
+            if archived_group_path.exists() and not group_path.exists():
+                # Move from archive back to notes
+                shutil.move(str(archived_group_path), group_path)
+                
+                # Update status to todo
+                post = frontmatter.load(group_path)
+                old_status = post.get('status', 'done')
+                post['status'] = 'todo'
+                with open(group_path, 'wb') as f:
+                    frontmatter.dump(post, f, sort_keys=False)
+                
+                click.echo(f"Unarchived {group_stem} ({old_status} → todo)")
+                
+                # Update link in parent file
+                parent_stem = ".".join(parent_parts[:i]) if i > 1 else parent_parts[0]
+                parent_path = notes_dir / f"{parent_stem}.md"
+                if parent_path.exists():
+                    content = parent_path.read_text()
+                    # Update link from archive/ to direct
+                    pattern = rf'(\[[^\]]+\]\()archive/{re.escape(group_stem)}(\))'
+                    replacement = rf'\g<1>{group_stem}\g<2>'
+                    new_content = re.sub(pattern, replacement, content)
+                    if new_content != content:
+                        parent_path.write_text(new_content)
+            
+            # Create group file if it doesn't exist
+            if not group_path.exists():
+                group_template = get_template("task")
+                # Group's parent is the previous level in hierarchy
+                group_parent = ".".join(parent_parts[:i]) if i > 1 else parent_parts[0]
+                group_name = parent_parts[i]
+                group_content = render_template(group_template, group_name, group_parent, format_title(group_parent.split(".")[-1]))
+                group_path.write_text(group_content)
+                click.echo(f"Created {group_path}")
+                
+                # Add group to its parent's Tasks section
+                parent_path = notes_dir / f"{group_parent}.md"
+                add_task_to_project(parent_path, group_name, group_stem)
+                click.echo(f"Added to {parent_path}")
+        
+        # Add task to the immediate parent's Tasks section
+        immediate_parent_path = notes_dir / f"{parent_hierarchy}.md"
         task_filename = filepath.stem
-        add_task_to_project(group_path, task_name, task_filename)
-        click.echo(f"Added to {group_path}")
+        add_task_to_project(immediate_parent_path, task_name, task_filename)
+        click.echo(f"Added to {immediate_parent_path}")
 
     # Add task directly to project (no group)
     elif note_type == "task" and project:
@@ -548,8 +566,9 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
         task_filename = filepath.stem
         add_task_to_project(project_path, task_name, task_filename)
         click.echo(f"Added to {project_path}")
-
-    text = " ".join(text)
+    
+    if text:
+        text = " ".join(text)
     
     if text and note_type in ("task", "note"):
         # Parse natural language dates and tags

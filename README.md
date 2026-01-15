@@ -74,6 +74,7 @@ cor sync
 | `project.task.md` | Task | Actionable item within a project |
 | `project.group.md` | Task Group | Organizes related tasks (also a task itself) |
 | `project.group.task.md` | Task | Nested task under a task group |
+| `project.group.smaller_group.task.md` | Task | Deeply nested task (supports any depth) |
 | `project.note.md` | Note | Reference/thinking, not actionable |
 | `backlog.md` | Backlog | Unsorted inbox for capture |
 | `root.md` | Root | Dashboard/digest of current state |

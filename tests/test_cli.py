@@ -133,6 +133,27 @@ class TestNew:
         assert (initialized_vault / "myproj.mygroup.md").exists(), "Group should be created"
         assert (initialized_vault / "myproj.mygroup.mytask.md").exists(), "Task should be created"
 
+    def test_new_task_creates_deeper_hierarchy(self, runner, initialized_vault, monkeypatch):
+        """cor new task project.group.smaller_group.task should create all intermediate groups."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        result = runner.invoke(cli, ["new", "task", "myproj.experiments.lr.sweep", "LR sweep task"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        # Check all intermediate groups are created
+        assert (initialized_vault / "myproj.experiments.md").exists(), "First group should be created"
+        assert (initialized_vault / "myproj.experiments.lr.md").exists(), "Second group should be created"
+        assert (initialized_vault / "myproj.experiments.lr.sweep.md").exists(), "Task should be created"
+        
+        # Verify parent links are correct
+        task_content = (initialized_vault / "myproj.experiments.lr.sweep.md").read_text()
+        assert "parent: myproj.experiments.lr" in task_content, "Task should have correct parent"
+        
+        # Verify task is added to immediate parent
+        parent_content = (initialized_vault / "myproj.experiments.lr.md").read_text()
+        assert "(myproj.experiments.lr.sweep)" in parent_content, "Task should be linked in parent"
+
     def test_new_project_rejects_dots(self, runner, initialized_vault, monkeypatch):
         """Project names cannot contain dots."""
         monkeypatch.chdir(initialized_vault)
@@ -513,6 +534,32 @@ class TestTree:
         output = result.output.lower()
         assert "and 1 note" in output, "Should show project-level note count"
         assert any("task1" in line and "and 1 note" in line for line in output.splitlines()), "Task should surface attached note count"
+
+    def test_tree_depth_option(self, runner, initialized_vault, monkeypatch):
+        """cor tree --depth should limit display depth."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create nested structure: project > g1 > sg1 > task1
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.g1.sg1.task1", "deep task"])
+        runner.invoke(cli, ["new", "task", "myproj.g1.task2", "mid task"])
+
+        # Without depth limit: should show all levels
+        result = runner.invoke(cli, ["tree", "myproj"])
+        assert result.exit_code == 0
+        assert "task1" in result.output.lower(), "Should show deeply nested task without depth limit"
+
+        # With depth=1: should not show task1 (too deep)
+        result = runner.invoke(cli, ["tree", "myproj", "--depth", "1"])
+        assert result.exit_code == 0
+        assert "g1" in result.output.lower(), "Should show first level group"
+        assert "task1" not in result.output.lower(), "Should not show deeply nested task with depth=1"
+        assert "task2" in result.output.lower(), "Should show task at depth 1"
+
+        # With depth=2: should show task1
+        result = runner.invoke(cli, ["tree", "myproj", "--depth", "2"])
+        assert result.exit_code == 0
+        assert "task1" in result.output.lower(), "Should show deeply nested task with depth=2"
 
 
 class TestRename:
