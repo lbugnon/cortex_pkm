@@ -81,6 +81,76 @@ def _build_note_counts(notes: list) -> dict[str, int]:
     return counts
 
 
+def _get_git_stats(notes_dir, weeks: int | None) -> dict | None:
+    """Get git commit statistics for the specified time period.
+    
+    Returns dict with keys: commits, additions, deletions
+    Returns None if not a git repository or git command fails.
+    """
+    import subprocess
+    from pathlib import Path
+    
+    try:
+        # Check if we're in a git repo
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=notes_dir,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return None
+        
+        # Build git log command
+        git_cmd = ["git", "log", "--numstat", "--pretty=format:COMMIT"]
+        
+        # Add time filter if specified
+        if weeks is not None:
+            git_cmd.append(f"--since={weeks} weeks ago")
+        
+        # Run git log
+        result = subprocess.run(
+            git_cmd,
+            cwd=notes_dir,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            return None
+        
+        # Parse output
+        commits = 0
+        additions = 0
+        deletions = 0
+        
+        for line in result.stdout.strip().split('\n'):
+            if line == 'COMMIT':
+                commits += 1
+            elif line.strip() and not line.startswith('COMMIT'):
+                # numstat format: additions deletions filename
+                parts = line.split('\t')
+                if len(parts) >= 2:
+                    try:
+                        add = int(parts[0]) if parts[0] != '-' else 0
+                        delete = int(parts[1]) if parts[1] != '-' else 0
+                        additions += add
+                        deletions += delete
+                    except ValueError:
+                        # Skip lines that can't be parsed
+                        continue
+        
+        return {
+            'commits': commits,
+            'additions': additions,
+            'deletions': deletions
+        }
+    
+    except (subprocess.SubprocessError, FileNotFoundError):
+        # Git not available or command failed
+        return None
+
+
 def _format_dependency_indicator(note, all_notes: list, verbose: bool = False) -> str:
     """Format dependency indicator for display.
 
@@ -1025,6 +1095,7 @@ def status(weeks: int | None):
     - Number of projects and tasks by status
     - Total lines of content
     - Activity over specified time period
+    - Git commit activity and line changes
 
     \b
     Examples:
@@ -1032,6 +1103,8 @@ def status(weeks: int | None):
       cor status -w 1         # Last week
       cor status -w 4         # Last 4 weeks
     """
+    import subprocess
+    
     notes_dir = get_notes_dir()
 
     now = datetime.now()
@@ -1124,9 +1197,23 @@ def status(weeks: int | None):
         click.echo(f"  Modified in period: {click.style(str(modified_count), fg='yellow', bold=True)}")
     click.echo()
 
-    # Activity indicator
-    if weeks is not None and modified_count > 0:
-        activity_rate = modified_count / (7 * weeks)
-        click.echo(f"  Activity: {click.style(f'{activity_rate:.1f}', fg='green')} updates/day")
-    
+    # Git activity statistics
+    git_stats = _get_git_stats(notes_dir, weeks)
+    if git_stats:
+        click.echo(click.style("Git Activity", bold=True))
+        click.echo(f"  Commits: {click.style(str(git_stats['commits']), fg='cyan', bold=True)}")
+        if git_stats['commits'] > 0:
+            click.echo(f"  Lines added: {click.style(f'+{git_stats["additions"]}', fg='green')}")
+            click.echo(f"  Lines deleted: {click.style(f'-{git_stats["deletions"]}', fg='red')}")
+            net_change = git_stats['additions'] - git_stats['deletions']
+            net_color = 'green' if net_change > 0 else ('red' if net_change < 0 else 'white')
+            net_sign = '+' if net_change > 0 else ''
+            click.echo(f"  Net change: {click.style(f'{net_sign}{net_change}', fg=net_color)}")
+            
+            # Activity rate
+            if weeks is not None and weeks > 0:
+                commits_per_day = git_stats['commits'] / (7 * weeks)
+                click.echo(f"  Activity: {click.style(f'{commits_per_day:.1f}', fg='cyan')} commits/day")
+        click.echo()
+
     click.echo()
