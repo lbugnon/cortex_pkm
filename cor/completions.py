@@ -87,6 +87,8 @@ def complete_ref(ctx, param, incomplete: str) -> list:
 
     # 2) Fuzzy fallback: search in combined text
     if len(inc) >= 2:
+        from .search.completion import apply_fuzzy_completion_filter
+
         candidates = []
         item_map = {}
         for it in items:
@@ -96,6 +98,9 @@ def complete_ref(ctx, param, incomplete: str) -> list:
             item_map[searchable] = it
 
         fuzzy_results = fuzzy_match(inc, candidates, limit=10, score_cutoff=40)
+        # Apply standard filtering for consistency
+        fuzzy_results = apply_fuzzy_completion_filter(fuzzy_results)
+
         completions = []
         for searchable, _, score in fuzzy_results:
             it = item_map.get(searchable)
@@ -164,13 +169,18 @@ def complete_name(ctx, param, incomplete: str) -> list:
 
 
 def complete_project(ctx, param, incomplete: str) -> list:
-    """Shell completion for project names."""
+    """Shell completion for project names with fuzzy fallback."""
+    from .search import fuzzy_match
+
     projects = get_projects()
-    return [
-        CompletionItem(p, help=f"Project {p}")
-        for p in projects
-        if not incomplete or p.startswith(incomplete)
-    ]
+
+    # Use consolidated completion logic with fuzzy fallback
+    return complete_filtered_with_fuzzy(
+        search_stem=incomplete,
+        items=projects,
+        fuzzy_match_fn=fuzzy_match,
+        help_text="Project {item}"
+    )
 
 
 def complete_existing_name(ctx, param, incomplete: str) -> list:
@@ -259,21 +269,42 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
     if not notes_dir.exists():
         return []
 
+    # Check for archive flag
+    include_archived = ctx.params.get("archived", False)
+
+    # Handle archive/ prefix
+    is_archive_path = incomplete.startswith("archive/")
+    search_stem = incomplete[8:] if is_archive_path else incomplete
+
     tasks = []
+    archived_tasks = []
 
-    # Collect all task file stems (metadata only - faster)
-    for path in notes_dir.glob("*.md"):
-        if path.stem in ("root", "backlog"):
-            continue
-        note = parse_metadata(path)
-        if note and note.note_type == "task":
-            tasks.append(path.stem)
+    # Collect active task file stems
+    if not is_archive_path:
+        for path in notes_dir.glob("*.md"):
+            if path.stem in ("root", "backlog"):
+                continue
+            note = parse_metadata(path)
+            if note and note.note_type == "task":
+                tasks.append(path.stem)
 
-    # Use consolidated completion logic
-    return complete_filtered_with_fuzzy(
-        search_stem=incomplete,
-        items=tasks,
-        fuzzy_match_fn=fuzzy_match
+    # Collect archived task file stems
+    if include_archived or is_archive_path:
+        archive_dir = notes_dir / "archive"
+        if archive_dir.exists():
+            for path in archive_dir.glob("*.md"):
+                note = parse_metadata(path)
+                if note and note.note_type == "task":
+                    archived_tasks.append(path.stem)
+
+    # Use consolidated completion logic with archive support
+    return complete_files_with_fuzzy(
+        search_stem=search_stem,
+        file_stems=tasks,
+        archived_stems=archived_tasks,
+        fuzzy_match_fn=fuzzy_match,
+        is_archive_path=is_archive_path,
+        include_archived=include_archived
     )
 
 

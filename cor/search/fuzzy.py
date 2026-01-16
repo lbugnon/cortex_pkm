@@ -182,3 +182,100 @@ def get_file_path(stem: str, is_archived: bool) -> Path:
     if is_archived:
         return notes_dir / "archive" / f"{stem}.md"
     return notes_dir / f"{stem}.md"
+
+
+def get_task_file_stems(include_archived: bool = False) -> list[tuple[str, bool]]:
+    """Get file stems for tasks only (type: task in frontmatter).
+
+    Returns list of (stem, is_archived) tuples.
+    """
+    from ..core.notes import parse_metadata
+
+    notes_dir = get_notes_dir()
+    if not notes_dir.exists():
+        return []
+
+    results = []
+
+    # Main directory files
+    for path in notes_dir.glob("*.md"):
+        if path.stem in ("root", "backlog"):
+            continue
+        note = parse_metadata(path)
+        if note and note.note_type == "task":
+            results.append((path.stem, False))
+
+    # Archived files
+    if include_archived:
+        archive_dir = notes_dir / "archive"
+        if archive_dir.exists():
+            for path in archive_dir.glob("*.md"):
+                note = parse_metadata(path)
+                if note and note.note_type == "task":
+                    results.append((path.stem, True))
+
+    return results
+
+
+def resolve_task_fuzzy(
+    name: str,
+    include_archived: bool = False,
+    auto_select_threshold: int = 95,
+) -> Optional[tuple[str, bool]]:
+    """Resolve a task name using fuzzy matching with interactive picker.
+
+    Only searches files with type: task in frontmatter.
+
+    Args:
+        name: User-provided task name (possibly partial/fuzzy)
+        include_archived: Whether to search archived tasks
+        auto_select_threshold: Score above which to auto-select single match
+
+    Returns:
+        Tuple of (stem, is_archived) or None if cancelled/no match
+
+    Raises:
+        click.ClickException: If no matches found
+    """
+    from ..core.notes import parse_metadata
+
+    notes_dir = get_notes_dir()
+
+    # 1. Check for exact match first (must be a task)
+    exact_path = notes_dir / f"{name}.md"
+    if exact_path.exists():
+        note = parse_metadata(exact_path)
+        if note and note.note_type == "task":
+            return (name, False)
+
+    if include_archived:
+        archive_path = notes_dir / "archive" / f"{name}.md"
+        if archive_path.exists():
+            note = parse_metadata(archive_path)
+            if note and note.note_type == "task":
+                return (name, True)
+
+    # 2. Get task candidates and run fuzzy search
+    candidates = get_task_file_stems(include_archived)
+    matches = fuzzy_match(name, candidates)
+
+    if not matches:
+        raise click.ClickException(f"No tasks found matching '{name}'")
+
+    # 3. Single high-confidence match: auto-select
+    if len(matches) == 1 and matches[0][2] >= auto_select_threshold:
+        stem, is_archived, score = matches[0]
+        click.echo(f"Auto-selected: {stem}" + (" (archived)" if is_archived else ""))
+        return (stem, is_archived)
+
+    # 4. Non-interactive mode: use best match with warning
+    if not sys.stdin.isatty():
+        if len(matches) > 1:
+            click.echo(
+                f"Warning: Multiple matches found, using best: {matches[0][0]}",
+                err=True,
+            )
+        return (matches[0][0], matches[0][1])
+
+    # 5. Multiple matches or low confidence: show picker
+    return show_picker(matches, name)

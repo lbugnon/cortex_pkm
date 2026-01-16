@@ -850,11 +850,12 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
     os.chdir("..")  # Return to previous directory
 
 @cli.command()
+@click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived tasks")
 @click.argument("name", shell_complete=complete_task_name)
 @click.argument("status", shell_complete=complete_task_status)
 @click.argument("text", nargs=-1, type=str)
 @require_init
-def mark(name: str, status: str, text: str | None):
+def mark(archived: bool, name: str, status: str, text: str | None):
     """Update task status.
 
     Supports fuzzy matching for task names.
@@ -872,20 +873,25 @@ def mark(name: str, status: str, text: str | None):
     Examples:
       cor mark impl active          # Fuzzy matches 'implement-api'
       cor mark my-project.research done
-      cor mark task-name done -t "Completed the implementation"
+      cor mark -a old-task todo     # Search archived tasks too
     """
-    from .search import resolve_file_fuzzy, get_file_path
+    from .search import resolve_task_fuzzy, get_file_path
 
     notes_dir = get_notes_dir()
 
-    # Use fuzzy matching (only active files, not archived)
-    result = resolve_file_fuzzy(name, include_archived=False)
+    # Handle archive/ prefix from tab completion
+    if name.startswith("archive/"):
+        name = name[8:]
+        archived = True
+
+    # Use task-specific fuzzy matching
+    result = resolve_task_fuzzy(name, include_archived=archived)
 
     if result is None:
         return  # User cancelled
 
-    stem, _ = result
-    file_path = notes_dir / f"{stem}.md"
+    stem, is_archived = result
+    file_path = get_file_path(stem, is_archived)
 
     # Validate it's a task (metadata only - faster)
     note = parse_metadata(file_path)
@@ -1036,8 +1042,9 @@ def expand(name: str):
         # Shorten to max 6 words and escape problematic filename characters for filename only
         words = task_name.split()[:6]
         shortened_name = '_'.join(words)
-        # Replace characters that can break filenames: . / { ( \ ) } , and others
-        safe_name = re.sub(r'[.,/{}()\\\[\]<>:;\'\"?*|]', '_', shortened_name)
+        # Replace characters that can break filenames: / { ( \ ) } , and others
+        # Note: periods are preserved (e.g., v1.2.3, config.yaml)
+        safe_name = re.sub(r'[,/{}()\\\[\]<>:;\'\"?*|]', '_', shortened_name)
         subtask_filename = f"{task_stem}.{safe_name}.md"
         subtask_path = notes_dir / subtask_filename
 
@@ -1152,6 +1159,9 @@ def _install_zsh_completion():
     completion_block = '''
 # Cortex shell completion
 if command -v cor &> /dev/null; then
+    # Enable Tab cycling through completions
+    setopt MENU_COMPLETE
+
     _cor_completion() {
         local -a completions completions_partial
         local -a response

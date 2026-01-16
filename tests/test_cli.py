@@ -300,13 +300,13 @@ This is a feature with subtasks:
         assert result.exit_code != 0
         assert "No checklist items" in result.output
 
-    def test_expand_preserves_periods_in_names(self, runner, initialized_vault, monkeypatch):
-        """cor expand should preserve periods and special characters in task names."""
+    def test_expand_strips_dots_from_names(self, runner, initialized_vault, monkeypatch):
+        """cor expand should strip dots from task names (dots are hierarchy separators)."""
         monkeypatch.chdir(initialized_vault)
 
         runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
         runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
-        
+
         task_file = initialized_vault / "myproj.feature.md"
         post = frontmatter.load(task_file)
         post.content = """## Description
@@ -318,12 +318,12 @@ This is a feature with subtasks:
 """
         with open(task_file, 'wb') as f:
             frontmatter.dump(post, f, sort_keys=False)
-        
+
         runner.invoke(cli, ["expand", "myproj.feature"])
-        
-        # Check that periods are preserved in filenames
-        assert (initialized_vault / "myproj.feature.update-v1.2.3.md").exists()
-        assert (initialized_vault / "myproj.feature.add-config.yaml.md").exists()
+
+        # Dots are stripped from task names (dots are hierarchy separators)
+        assert (initialized_vault / "myproj.feature.update-v123.md").exists()
+        assert (initialized_vault / "myproj.feature.add-configyaml.md").exists()
 
     def test_expand_handles_all_cortex_status_symbols(self, runner, initialized_vault, monkeypatch):
         """cor expand should parse checklist items with all Cortex status symbols."""

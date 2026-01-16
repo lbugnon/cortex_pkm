@@ -40,11 +40,11 @@ def apply_fuzzy_completion_filter(
             "0", "false", "no"
         }
 
-    # Collapse 100%-score ties to shortest
+    # When collapse_exact is enabled and top score is 100%, return only shortest match
+    # Otherwise return all matches so shell can cycle through them
     if collapse_exact and top_score == 100:
         top_ties = [r for r in filtered if r[2] == top_score]
         if len(top_ties) > 1:
-            # Return only the first one (fuzzy_match already sorts by length)
             return [filtered[0]]
 
     return filtered
