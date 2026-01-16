@@ -1014,26 +1014,28 @@ def tree(verbose: bool, depth: int | None, project: str):
         )
 
 
-@click.command(short_help="Weekly review summary and insights")
-@click.option("--weeks", "-w", default=1, help="Number of weeks to look back (default: 1)")
+@click.command(short_help="Vault statistics and overview")
+@click.option("--weeks", "-w", default=None, type=int, help="Number of weeks to look back (default: all time)")
 @require_init
-def review(weeks: int):
-    """Weekly review assistant.
+def status(weeks: int | None):
+    """Vault status report.
 
     \b
-    Summarizes:
-    - What moved (status changes, completed items)
-    - What's stale (needs attention)
-    - What's upcoming (due dates, priorities)
+    Shows:
+    - Number of projects and tasks by status
+    - Total lines of content
+    - Activity over specified time period
 
     \b
-    Use this for weekly planning and reflection.
+    Examples:
+      cor status              # All time statistics
+      cor status -w 1         # Last week
+      cor status -w 4         # Last 4 weeks
     """
     notes_dir = get_notes_dir()
 
     now = datetime.now()
-    start_date = now - timedelta(days=7 * weeks)
-    end_of_week = now + timedelta(days=7)
+    start_date = datetime.min if weeks is None else now - timedelta(days=7 * weeks)
 
     # Get all notes including archived
     notes = find_notes(notes_dir)
@@ -1041,142 +1043,90 @@ def review(weeks: int):
     if archive_dir.exists():
         notes.extend(find_notes(archive_dir))
 
-    # Categorize
-    completed = []
-    created = []
-    active = []
-    blocked = []
-    stale = []
-    due_soon = []
-    overdue = []
-    high_priority = []
+    # Categorize by type and status
+    projects = []
+    tasks_by_status = {
+        "todo": [],
+        "active": [],
+        "done": [],
+        "blocked": [],
+        "waiting": [],
+        "dropped": [],
+    }
+    notes_count = 0
+    total_lines = 0
+    modified_count = 0
 
     for n in notes:
         # Skip special files
         if n.note_type in ("backlog", "root"):
             continue
 
-        # Completed this period
-        if n.status in ("done", "dropped") and n.modified and n.modified >= start_date:
-            completed.append(n)
+        # Count content lines (non-empty lines in content)
+        if n.content:
+            content_lines = [line for line in n.content.split("\n") if line.strip()]
+            total_lines += len(content_lines)
 
-        # Created this period
-        if n.created and n.created >= start_date:
-            created.append(n)
+        # Count modifications in period
+        if n.modified and n.modified >= start_date:
+            modified_count += 1
 
-        # Currently active
-        if n.status == "active":
-            active.append(n)
+        # Categorize by type
+        if n.note_type == "project":
+            projects.append(n)
+        elif n.note_type == "task":
+            status_key = n.status or "todo"
+            if status_key in tasks_by_status:
+                tasks_by_status[status_key].append(n)
+        elif n.note_type == "note":
+            notes_count += 1
 
-        # Currently blocked
-        if n.status == "blocked":
-            blocked.append(n)
+    # Print status report
+    period_str = "All Time" if weeks is None else (f"Last Week" if weeks == 1 else f"Last {weeks} Weeks")
+    click.echo(click.style(f"\n═══ Vault Status ({period_str}) ═══\n", bold=True))
 
-        # Stale items (active but not touched)
-        if n.is_stale:
-            stale.append(n)
-
-        # Due soon
-        if n.due and n.due <= end_of_week and n.status not in ("done", "dropped"):
-            if n.is_overdue:
-                overdue.append(n)
-            else:
-                due_soon.append(n)
-
-        # High priority
-        if n.priority == "high" and n.status not in ("done", "dropped"):
-            high_priority.append(n)
-
-    # Print review
-    period_str = "this week" if weeks == 1 else f"past {weeks} weeks"
-    click.echo(click.style(f"\n═══ Weekly Review ({period_str}) ═══\n", bold=True))
-
-    # Summary stats
-    click.echo(click.style("📊 Summary", bold=True))
-    click.echo(f"  Completed: {click.style(str(len(completed)), fg='green', bold=True)}")
-    click.echo(f"  Created:   {click.style(str(len(created)), fg='cyan', bold=True)}")
-    click.echo(f"  Active:    {click.style(str(len(active)), fg='blue', bold=True)}")
-    click.echo(f"  Blocked:   {click.style(str(len(blocked)), fg='red', bold=True)}")
+    # Projects
+    click.echo(click.style("Projects: ", bold=True) + click.style(str(len(projects)), fg='cyan', bold=True))
+    
+    # Break down projects by status
+    project_by_status = {}
+    for p in projects:
+        status_key = p.status or "planning"
+        project_by_status[status_key] = project_by_status.get(status_key, 0) + 1
+    
+    for status_key in ["planning", "active", "paused", "done"]:
+        count = project_by_status.get(status_key, 0)
+        if count > 0:
+            color = PROJECT_COLORS.get(status_key, "white")
+            click.echo(f"    {status_key}: {click.style(str(count), fg=color)}")
     click.echo()
 
-    # What moved (completed)
-    if completed:
-        click.echo(click.style("✅ Completed", fg="green", bold=True))
-        for n in sorted(completed, key=lambda x: x.modified or date.min, reverse=True):
-            symbol = "✓" if n.status == "done" else "~"
-            type_tag = f"[{n.note_type}]" if n.note_type != "task" else ""
-            click.echo(f"  {symbol} {n.title} {type_tag}")
-        click.echo()
+    # Tasks
+    total_tasks = sum(len(tasks) for tasks in tasks_by_status.values())
+    click.echo(click.style("Tasks: ", bold=True) + click.style(str(total_tasks), fg='cyan', bold=True))
+    
+    for status_key in ["todo", "active", "waiting", "blocked", "done", "dropped"]:
+        count = len(tasks_by_status[status_key])
+        if count > 0:
+            color = TASK_COLORS.get(status_key, "white")
+            symbol = STATUS_SYMBOLS.get(status_key, "")
+            click.echo(f"    {symbol} {status_key}: {click.style(str(count), fg=color)}")
+    click.echo()
 
-    # What needs attention
-    if overdue:
-        click.echo(click.style("🚨 Overdue", fg="red", bold=True))
-        for n in sorted(overdue, key=lambda x: x.due or date.min):
-            days = (now.date() - n.due).days
-            if days == 1:
-                click.echo(f"  • {n.title} (1d overdue)")
-            else:
-                click.echo(f"  • {n.title} ({days}d overdue)")
-        click.echo()
+    # Notes
+    click.echo(click.style("Notes", bold=True))
+    click.echo(f"  Total: {click.style(str(notes_count), fg='cyan', bold=True)}")
+    click.echo()
 
-    if blocked:
-        click.echo(click.style("🔒 Blocked", fg="red", bold=True))
-        for n in blocked:
-            time_str = format_time_ago(n.modified) if n.modified else ""
-            click.echo(f"  • {n.title} (blocked {time_str})" if time_str else f"  • {n.title}")
-        click.echo()
+    # Content statistics
+    click.echo(click.style("Total lines: ", bold=True) + f"{click.style(str(total_lines), fg='cyan', bold=True)}")
+    if weeks is not None:
+        click.echo(f"  Modified in period: {click.style(str(modified_count), fg='yellow', bold=True)}")
+    click.echo()
 
-    if stale:
-        click.echo(click.style("💤 Stale (needs attention)", fg="yellow", bold=True))
-        for n in sorted(stale, key=lambda x: x.modified or datetime.min):
-            time_str = format_time_ago(n.modified) if n.modified else ""
-            click.echo(f"  • {n.title} ({time_str})" if time_str else f"  • {n.title}")
-        click.echo()
-
-    # What's upcoming
-    if due_soon:
-        click.echo(click.style("📅 Due this week", fg="cyan", bold=True))
-        for n in sorted(due_soon, key=lambda x: x.due or datetime.max):
-            days = (n.due - now.date()).days
-            day_str = "today" if days == 0 else f"in {days}d"
-            click.echo(f"  • {n.title} ({day_str})")
-        click.echo()
-
-    if high_priority:
-        click.echo(click.style("⚡ High Priority", fg="magenta", bold=True))
-        for n in high_priority:
-            status_str = f"[{n.status}]" if n.status else ""
-            click.echo(f"  • {n.title} {status_str}")
-        click.echo()
-
-    # Currently active work
-    if active:
-        click.echo(click.style("🔧 Currently Active", fg="blue", bold=True))
-        for n in sorted(active, key=lambda x: x.modified or datetime.min, reverse=True):
-            time_str = format_time_ago(n.modified) if n.modified else ""
-            type_tag = f"[{n.note_type}]" if n.note_type != "task" else ""
-            click.echo(f"  • {n.title} ({time_str}) {type_tag}" if time_str else f"  • {n.title} {type_tag}")
-        click.echo()
-
-    # Recommendations
-    click.echo(click.style("💡 Recommendations", bold=True))
-    recommendations = []
-
-    if overdue:
-        recommendations.append(f"Address {len(overdue)} overdue item(s)")
-    if blocked:
-        recommendations.append(f"Unblock {len(blocked)} item(s)")
-    if stale:
-        recommendations.append(f"Review {len(stale)} stale item(s) - update or pause them")
-    if len(active) > 5:
-        recommendations.append(f"Consider focusing - {len(active)} active items is a lot")
-    if not active and not due_soon:
-        recommendations.append("No active work - time to start something new?")
-
-    if recommendations:
-        for rec in recommendations:
-            click.echo(f"  → {rec}")
-    else:
-        click.echo(click.style("  All looking good! 🎉", fg="green"))
-
+    # Activity indicator
+    if weeks is not None and modified_count > 0:
+        activity_rate = modified_count / (7 * weeks)
+        click.echo(f"  Activity: {click.style(f'{activity_rate:.1f}', fg='green')} updates/day")
+    
     click.echo()
