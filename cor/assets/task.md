@@ -6,6 +6,7 @@ modified: {date}
 priority:
 due:
 tags: []
+requires: []
 parent: {parent}
 ---
 # {name}

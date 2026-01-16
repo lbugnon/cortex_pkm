@@ -6,7 +6,7 @@ import shutil
 import click
 
 from ..completions import complete_existing_name, complete_group_project, complete_project_tasks, complete_new_parent
-from ..parser import parse_note
+from ..core.notes import parse_note
 from ..utils import (
     get_notes_dir,
     get_template,
@@ -23,9 +23,8 @@ from ..utils import (
 @click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in search")
 @click.argument("old_name", shell_complete=complete_existing_name)
 @click.argument("new_name", shell_complete=complete_new_parent)
-@click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @require_init
-def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
+def rename(archived: bool, old_name: str, new_name: str):
     """Rename projects/tasks and update all related links.
 
     Supports fuzzy matching for old_name.
@@ -41,9 +40,8 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     - Creates the target group if it does not exist.
     - Updates parent/backlinks and all file references.
     - Use -a to include archived files.
-    - Use --dry-run to preview changes.
     """
-    from ..fuzzy import resolve_file_fuzzy, get_file_path
+    from ..search import resolve_file_fuzzy, get_file_path
 
     notes_dir = get_notes_dir()
     archive_dir = notes_dir / "archive"
@@ -69,6 +67,11 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
     # Parse note to know if we're renaming a project or a task (group included)
     note = parse_note(main_file)
 
+    if "&" in new_name:
+        raise click.ClickException(
+            "Invalid name: '&' is not allowed in note names."
+        )
+
     # Project rename keeps validation: new_name must not contain dots
     if note.note_type == "project" and "." in new_name:
         raise click.ClickException(
@@ -76,24 +79,47 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
             "Use hyphens instead (e.g., 'v0-1' not 'v0.1')."
         )
 
-    # Resolve shortcut for tasks: keep leaf name, change parent to project or project.group
+    # Determine target directory early (needed for checking if target exists)
+    target_dir = archive_dir if in_archive else notes_dir
+    
+    # Resolve shortcut for tasks: keep leaf name, change parent hierarchy
+    # Special case: when moving within same project, only apply shortcut if target exists
     resolved_new_name = new_name
     if note.note_type == "task" and len(old_parts) >= 2:
         leaf = old_parts[-1]
+        old_project = old_parts[0]
+        
         if len(new_parts) == 1:
-            # cor rename p1.g1.task -> p2  => p2.task
-            resolved_new_name = f"{new_parts[0]}.{leaf}"
-        elif len(new_parts) == 2:
+            # cor rename p1.task -> p2  => p2.task.md if p2 exists, otherwise p2.md
+            # Check if target project exists before applying shortcut
+            target_check = target_dir / f"{new_parts[0]}.md"
+            if target_check.exists():
+                resolved_new_name = f"{new_parts[0]}.{leaf}"
+            else:
+                # Target project doesn't exist, use new_name as-is for full rename
+                resolved_new_name = new_name
+        elif len(new_parts) >= 2:
             # cor rename p1.task1 -> p2.group  => p2.group.task1
-            resolved_new_name = f"{new_parts[0]}.{new_parts[1]}.{leaf}"
-        else:
-            # 3+ parts in new_name means explicit full rename; use as-is
-            resolved_new_name = new_name
+            # cor rename p1.task1 -> p2.group.subgroup  => p2.group.subgroup.task1
+            # Works for any depth hierarchy
+            new_project = new_parts[0]
+            new_parent = ".".join(new_parts)  # Full parent hierarchy
+            
+            if old_project == new_project:
+                # Moving within same project: only apply shortcut if target exists
+                target_check = target_dir / f"{new_parent}.md"
+                if target_check.exists():
+                    resolved_new_name = f"{new_parent}.{leaf}"
+                else:
+                    # Target doesn't exist, use new_name as-is for full rename
+                    resolved_new_name = new_name
+            else:
+                # Moving to different project: always apply shortcut (create group if needed)
+                resolved_new_name = f"{new_parent}.{leaf}"
 
 
     # Collect all files to rename (main file + children)
     files_to_rename: list[tuple] = []
-    target_dir = archive_dir if in_archive else notes_dir
 
     # Main file
     new_main_file = target_dir / f"{resolved_new_name}.md"
@@ -121,44 +147,7 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
         for md_file in search_dir.glob("*.md"):
             files_to_update_links.append(md_file)
 
-    # Preview mode
-    if dry_run:
-        log_info(click.style("\n=== Dry Run - No changes will be made ===\n", bold=True))
 
-        log_verbose(click.style("Files to rename:", fg="cyan"))
-        for old_path, new_path in files_to_rename:
-            log_verbose(f"  {old_path} → {new_path}")
-
-        log_verbose(click.style("\nLinks to update:", fg="cyan"))
-        link_updates = []
-        for file_path in files_to_update_links:
-            content = file_path.read_text()
-            updates = []
-
-            for old_path, new_path in files_to_rename:
-                old_stem = old_path.stem
-                new_stem = new_path.stem
-
-                # Check for links: [Title](filename) or [Title](archive/filename)
-                patterns = [
-                    (rf'\[([^\]]+)\]\({re.escape(old_stem)}\)', f'[\\1]({new_stem})'),
-                    (rf'\[([^\]]+)\]\(archive/{re.escape(old_stem)}\)', f'[\\1](archive/{new_stem})'),
-                ]
-
-                for pattern, _ in patterns:
-                    if re.search(pattern, content):
-                        updates.append(f"{old_stem} → {new_stem}")
-
-            if updates:
-                link_updates.append((file_path, updates))
-
-        for file_path, updates in link_updates:
-            log_verbose(f"  {file_path}:")
-            for update in set(updates):
-                log_verbose(f"    - {update}")
-
-        log_info(click.style("\nRun without --dry-run to apply changes.", fg="yellow"))
-        return
 
     # Auto-create target group if needed (for task moves to project.group)
     if note.note_type == "task":
@@ -191,8 +180,8 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
         log_verbose(f"  {old_path} → {new_path}")
 
     # Handle parent changes and link updates using maintenance infrastructure
-    from ..maintenance import MaintenanceRunner
-    runner = MaintenanceRunner(notes_dir, dry_run=False)
+    from ..sync import MaintenanceRunner
+    runner = MaintenanceRunner(notes_dir)
     
     # Prepare list of renames for handle_renamed_files (relative paths)
     renamed_list = []
@@ -382,9 +371,8 @@ def rename(archived: bool, old_name: str, new_name: str, dry_run: bool):
 @click.command(short_help="Create a group and move tasks under it")
 @click.argument("group", shell_complete=complete_group_project)
 @click.argument("tasks", nargs=-1, shell_complete=complete_project_tasks)
-@click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
 @require_init
-def group(group: str, tasks: tuple, dry_run: bool):
+def group(group: str, tasks: tuple):
     """Group existing tasks under a new or existing group.
 
     \b
@@ -396,7 +384,6 @@ def group(group: str, tasks: tuple, dry_run: bool):
     Notes:
     - Creates the group file if it does not exist.
     - Updates parent/backlinks and links accordingly.
-    - Use --dry-run to preview changes.
     """
     notes_dir = get_notes_dir()
 
@@ -447,25 +434,6 @@ def group(group: str, tasks: tuple, dry_run: bool):
     for search_dir in [notes_dir, archive_dir] if archive_dir.exists() else [notes_dir]:
         for md_file in search_dir.glob("*.md"):
             files_to_update_links.append(md_file)
-
-    # Preview mode
-    if dry_run:
-        log_info(click.style("\n=== Dry Run - No changes will be made ===\n", bold=True))
-
-        log_info(click.style("Group to create:", fg="cyan"))
-        log_info(f"  {group_path}")
-
-        log_info(click.style("\nTasks to move:", fg="cyan"))
-        for old_path, new_path in files_to_rename:
-            log_info(f"  {old_path.name} → {new_path.name}")
-
-        log_info(click.style("\nLinks to update:", fg="cyan"))
-        for old_path, new_path in files_to_rename:
-            old_stem = old_path.stem
-            new_stem = new_path.stem
-            log_info(f"  ({old_stem}) → ({new_stem})")  
-        log_info(click.style("\nRun without --dry-run to apply changes.", fg="yellow"))
-        return
 
     # Create group file from task template
     log_info(click.style("Creating group:", fg="cyan"))

@@ -6,9 +6,9 @@ import re
 import click
 
 from ..completions import complete_project
-from ..parser import find_notes
+from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
-from ..utils import get_notes_dir, format_time_ago, require_init, format_title
+from ..utils import get_notes_dir, format_time_ago, require_init, format_title, get_parent_name
 
 # Shared color mappings for all tree views
 TASK_COLORS = {
@@ -29,6 +29,182 @@ PROJECT_COLORS = {
 
 # Status sort order for tree display
 STATUS_ORDER = {"blocked": 0, "active": 1, "waiting": 2, "todo": 3, "dropped": 4, "done": 5}
+
+
+def _extract_description(note) -> str | None:
+    """Extract text under ## Description section from note content.
+
+    Returns first line or up to 80 chars of description text.
+    """
+    if not note.content:
+        return None
+
+    lines = note.content.split("\n")
+    in_description = False
+    description_lines = []
+
+    for line in lines:
+        if line.startswith("## Description"):
+            in_description = True
+            continue
+        if in_description:
+            if line.startswith("##"):  # Next section
+                break
+            stripped = line.strip()
+            if stripped:  # Non-empty line
+                description_lines.append(stripped)
+                break  # Take only first non-empty line
+
+    if description_lines:
+        desc = description_lines[0]
+        if len(desc) > 80:
+            desc = desc[:77] + "..."
+        return desc
+    return None
+
+
+def _format_note_label(count: int) -> str:
+    """Return human-friendly note count label."""
+    return f"{count} note" if count == 1 else f"{count} notes"
+
+
+def _build_note_counts(notes: list) -> dict[str, int]:
+    """Build mapping of parent stem -> attached note count."""
+    counts: dict[str, int] = {}
+    for note in notes:
+        if note.note_type != "note":
+            continue
+        parent = get_parent_name(note.path.stem)
+        if not parent:
+            continue
+        counts[parent] = counts.get(parent, 0) + 1
+    return counts
+
+
+def _get_git_stats(notes_dir, weeks: int | None) -> dict | None:
+    """Get git commit statistics for the specified time period.
+    
+    Returns dict with keys: commits, additions, deletions
+    Returns None if not a git repository or git command fails.
+    """
+    import subprocess
+    from pathlib import Path
+    
+    try:
+        # Check if we're in a git repo
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=notes_dir,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return None
+        
+        # Build git log command
+        git_cmd = ["git", "log", "--numstat", "--pretty=format:COMMIT"]
+        
+        # Add time filter if specified
+        if weeks is not None:
+            git_cmd.append(f"--since={weeks} weeks ago")
+        
+        # Run git log
+        result = subprocess.run(
+            git_cmd,
+            cwd=notes_dir,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            return None
+        
+        # Parse output
+        commits = 0
+        additions = 0
+        deletions = 0
+        
+        for line in result.stdout.strip().split('\n'):
+            if line == 'COMMIT':
+                commits += 1
+            elif line.strip() and not line.startswith('COMMIT'):
+                # numstat format: additions deletions filename
+                parts = line.split('\t')
+                if len(parts) >= 2:
+                    try:
+                        add = int(parts[0]) if parts[0] != '-' else 0
+                        delete = int(parts[1]) if parts[1] != '-' else 0
+                        additions += add
+                        deletions += delete
+                    except ValueError:
+                        # Skip lines that can't be parsed
+                        continue
+        
+        return {
+            'commits': commits,
+            'additions': additions,
+            'deletions': deletions
+        }
+    
+    except (subprocess.SubprocessError, FileNotFoundError):
+        # Git not available or command failed
+        return None
+
+
+def _format_dependency_indicator(note, all_notes: list, verbose: bool = False) -> str:
+    """Format dependency indicator for display.
+
+    Args:
+        note: Task/project note
+        all_notes: All notes for dependency resolution
+        verbose: If True, show detailed info
+
+    Returns:
+        Formatted dependency string (empty if no dependencies)
+    """
+    if note.note_type not in ("task", "project") or not note.requires:
+        return ""
+
+    from ..dependencies import get_dependency_info
+
+    dep_info = get_dependency_info(note, all_notes)
+
+    if not verbose:
+        # Compact mode: just show indicator for unmet requirements
+        if dep_info.all_requirements_met:
+            return ""  # Don't show if all requirements met
+        else:
+            # Show arrow with count of unmet requirements
+            count = len(dep_info.blocked_by)
+            return click.style(f" [→{count}]", fg="yellow", dim=True)
+    else:
+        # Verbose mode: show details
+        lines = []
+
+        if dep_info.requires:
+            # Format requirement list with status colors
+            req_parts = []
+            for req_stem in dep_info.requires:
+                if req_stem in dep_info.blocked_by:
+                    # Unmet requirement - yellow
+                    req_parts.append(click.style(req_stem, fg="yellow"))
+                else:
+                    # Met requirement - green
+                    req_parts.append(click.style(req_stem, fg="green"))
+            requires_str = ", ".join(req_parts)
+            lines.append(f"→ Requires: {requires_str}")
+
+        if dep_info.blocks:
+            # Show what this blocks
+            blocks_str = ", ".join([click.style(b, fg="cyan") for b in dep_info.blocks])
+            lines.append(f"← Blocks: {blocks_str}")
+
+        if dep_info.missing_requirements:
+            # Warn about missing requirements
+            missing_str = ", ".join([click.style(m, fg="red") for m in dep_info.missing_requirements])
+            lines.append(f"⚠ Missing: {missing_str}")
+
+        return "\n".join(lines) if lines else ""
 
 
 def _update_root_section(notes_dir, section: str, body: str) -> None:
@@ -67,6 +243,11 @@ def show_tree(
     show_separators: bool = False,
     separator_transitions: list = None,
     capture: list | None = None,
+    verbose: bool = False,
+    all_notes: list | None = None,
+    note_counts: dict[str, int] | None = None,
+    max_depth: int | None = None,
+    current_depth: int = 0,
 ):
     """
     Unified tree rendering function.
@@ -80,7 +261,14 @@ def show_tree(
         render_fn: Function(task) -> str to render task display (symbol + title)
         show_separators: Whether to show --- separators between status groups
         separator_transitions: List of (from_statuses, to_statuses) tuples for separators
+        verbose: Whether to show description text under tasks
+        all_notes: List of all notes for dependency resolution (optional)
+        note_counts: Optional mapping of parent stem -> number of attached notes
+        max_depth: Maximum depth to display (None for unlimited)
+        current_depth: Current depth in the tree (used internally for recursion)
     """
+    note_counts = note_counts or {}
+
     if parent_name not in tasks_by_parent:
         return
 
@@ -129,23 +317,59 @@ def show_tree(
             color = TASK_COLORS.get(task.status, "white")
             task_display = f"{click.style(symbol, fg=color)} {task.title}"
 
+        # Add dependency indicator (compact mode)
+        if all_notes:
+            dep_indicator = _format_dependency_indicator(task, all_notes, verbose=False)
+            task_display += dep_indicator
+
+        # Append note count if this task has attached notes
+        note_count = note_counts.get(task.path.stem, 0)
+        if note_count:
+            note_suffix = _format_note_label(note_count)
+            task_display += click.style(f" (and {note_suffix})", dim=True)
+
         line = f"{prefix}{branch}{task_display}"
         click.echo(line)
         if capture is not None:
             capture.append(click.unstyle(line))
 
-        # Recurse for children
-        show_tree(
-            task.path.stem,
-            tasks_by_parent,
-            child_prefix,
-            filter_fn=filter_fn,
-            sort_fn=sort_fn,
-            render_fn=render_fn,
-            show_separators=show_separators,
-            separator_transitions=separator_transitions,
-            capture=capture,
-        )
+        # Show description if verbose
+        if verbose:
+            desc = _extract_description(task)
+            if desc:
+                desc_line = f"{child_prefix}    {click.style(desc, dim=True)}"
+                click.echo(desc_line)
+                if capture is not None:
+                    capture.append(click.unstyle(desc_line))
+
+            # Show dependency details in verbose mode
+            if all_notes:
+                dep_details = _format_dependency_indicator(task, all_notes, verbose=True)
+                if dep_details:
+                    for detail_line in dep_details.split("\n"):
+                        styled_line = f"{child_prefix}    {click.style(detail_line, dim=True, fg='yellow')}"
+                        click.echo(styled_line)
+                        if capture is not None:
+                            capture.append(click.unstyle(styled_line))
+
+        # Recurse for children only if within depth limit
+        if max_depth is None or current_depth < max_depth:
+            show_tree(
+                task.path.stem,
+                tasks_by_parent,
+                child_prefix,
+                filter_fn=filter_fn,
+                sort_fn=sort_fn,
+                render_fn=render_fn,
+                show_separators=show_separators,
+                separator_transitions=separator_transitions,
+                capture=capture,
+                verbose=verbose,
+                all_notes=all_notes,
+                note_counts=note_counts,
+                max_depth=max_depth,
+                current_depth=current_depth + 1,
+            )
 
         prev_status = task.status
 
@@ -160,7 +384,7 @@ def _group_by_project(tasks: list) -> dict:
     return groups
 
 
-def _print_section(title: str, tasks: list, color: str, formatter, limit: int, capture: list | None = None) -> bool:
+def _print_section(title: str, tasks: list, color: str, formatter, limit: int, capture: list | None = None, verbose: bool = False) -> bool:
     """Print section with tasks grouped by project. Returns True if printed."""
     if not tasks:
         return False
@@ -191,6 +415,16 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
             click.echo(line)
             if capture is not None:
                 capture.append(click.unstyle(line))
+            
+            # Show description if verbose
+            if verbose:
+                desc = _extract_description(task)
+                if desc:
+                    desc_line = f"      {click.style(desc, dim=True)}"
+                    click.echo(desc_line)
+                    if capture is not None:
+                        capture.append(click.unstyle(desc_line))
+            
             shown += 1
 
     remaining = len(tasks) - shown
@@ -199,11 +433,34 @@ def _print_section(title: str, tasks: list, color: str, formatter, limit: int, c
     return True
 
 
+
+def _matches_tag(note, tag, project_tags) -> bool:
+    """Return True if note matches provided tag filter.
+
+    Tag matches if:
+    - tag is None (no filtering)
+    - tag equals parent project name
+    - tag exists in note.tags
+    - tag exists in parent project's tags (propagated)
+    """
+    if not tag:
+        return True
+    parent = note.parent_project
+    if parent and tag == parent:
+        return True
+    if tag in (note.tags or []):
+        return True
+    if parent and tag in project_tags.get(parent, set()):
+        return True
+    return False
+
 @click.command(short_help="Prioritized daily view of tasks")
 @click.option("--limit", "-l", default=3, help="Max items per section (default: 3)")
 @click.option("--all", "-a", "show_all", is_flag=True, help="Show all items (no limit)")
+@click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
+@click.argument("tag", required=False, shell_complete=complete_project)
 @require_init
-def daily(limit: int, show_all: bool):
+def daily(limit: int, show_all: bool, verbose: bool, tag: str | None):
     """Show what needs attention today.
 
     \b
@@ -214,6 +471,14 @@ def daily(limit: int, show_all: bool):
     - In progress (continue)
     - High priority ready
     - Suggested next (from active projects)
+    
+    Use -v/--verbose to show task descriptions.
+
+    If a tag is provided (e.g., `cor daily foundation_model`), only tasks
+    matching the tag are shown. A task matches when:
+    - The task's parent project name equals the tag, or
+    - The task has the tag in its metadata, or
+    - Its parent project has the tag (project tags propagate to children).
     """
     notes_dir = get_notes_dir()
     root_lines: list[str] = []
@@ -226,8 +491,17 @@ def daily(limit: int, show_all: bool):
         limit = 0  # 0 means no limit
 
     # Build set of active project names
-    active_projects = {n.path.stem for n in notes
-                       if n.note_type == "project" and n.status == "active"}
+    active_projects = {
+        n.path.stem for n in notes if n.note_type == "project" and n.status == "active"
+    }
+
+    # Build project -> tags mapping for propagation
+    project_tags: dict[str, set[str]] = {
+        n.path.stem: set(n.tags or []) for n in notes if n.note_type == "project"
+    }
+
+    # Pre-filter tasks once (respects tag propagation)
+    tasks = [n for n in notes if n.note_type == "task" and _matches_tag(n, tag, project_tags)]
 
     # Track shown items to avoid duplicates
     shown_paths = set()
@@ -244,8 +518,7 @@ def daily(limit: int, show_all: bool):
             return f" ({days}d overdue)"
 
     # 1. Overdue (tasks only, sorted by due date)
-    overdue = [n for n in notes
-               if n.is_overdue and n.note_type == "task"]
+    overdue = [n for n in tasks if n.is_overdue]
     overdue.sort(key=lambda n: n.due)
     if _print_section(
         "Overdue",
@@ -254,14 +527,13 @@ def daily(limit: int, show_all: bool):
         format_overdue,
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in overdue[:limit or len(overdue)])
 
     # 2. Waiting stale (waiting status + stale)
-    waiting_stale = [n for n in notes
-                     if n.status == "waiting" and n.is_stale
-                     and n.path not in shown_paths]
+    waiting_stale = [n for n in tasks if n.status == "waiting" and n.is_stale and n.path not in shown_paths]
     waiting_stale.sort(key=lambda n: n.modified or datetime.min)
     if _print_section(
         "Waiting (stale)",
@@ -270,15 +542,17 @@ def daily(limit: int, show_all: bool):
         lambda n: f" ({format_time_ago(n.modified)} since update)" if n.modified else "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in waiting_stale[:limit or len(waiting_stale)])
 
     # 3. Due today
-    due_today = [n for n in notes
-                 if n.due and n.due == today
-                 and n.status not in ("done", "dropped")
-                 and n.path not in shown_paths]
+    due_today = [
+        n
+        for n in tasks
+        if n.due and n.due == today and n.status not in ("done", "dropped") and n.path not in shown_paths
+    ]
     priority_order = {"high": 0, "medium": 1, "low": 2}
     due_today.sort(key=lambda n: priority_order.get(n.priority, 3))
     if _print_section(
@@ -288,14 +562,13 @@ def daily(limit: int, show_all: bool):
         lambda n: f" [{n.priority}]" if n.priority else "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in due_today[:limit or len(due_today)])
 
     # 4. In Progress (active tasks)
-    in_progress = [n for n in notes
-                   if n.status == "active" and n.note_type == "task"
-                   and n.path not in shown_paths]
+    in_progress = [n for n in tasks if n.status == "active" and n.path not in shown_paths]
     in_progress.sort(key=lambda n: n.modified or datetime.min)
     if _print_section(
         "In Progress",
@@ -304,16 +577,17 @@ def daily(limit: int, show_all: bool):
         lambda n: f" ({format_time_ago(n.modified)})" if n.modified else "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in in_progress[:limit or len(in_progress)])
 
     # 5. High Priority Ready (high priority + todo)
-    high_priority = [n for n in notes
-                     if n.priority == "high"
-                     and n.status == "todo"
-                     and n.note_type == "task"
-                     and n.path not in shown_paths]
+    high_priority = [
+        n
+        for n in tasks
+        if n.priority == "high" and n.status == "todo" and n.path not in shown_paths
+    ]
     high_priority.sort(key=lambda n: n.created or datetime.min)
     if _print_section(
         "High Priority",
@@ -322,16 +596,17 @@ def daily(limit: int, show_all: bool):
         lambda n: "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
         shown_paths.update(n.path for n in high_priority[:limit or len(high_priority)])
 
     # 6. Suggested Next (todo tasks in active projects)
-    suggested = [n for n in notes
-                 if n.status == "todo"
-                 and n.note_type == "task"
-                 and n.path not in shown_paths
-                 and n.parent_project in active_projects]
+    suggested = [
+        n
+        for n in tasks
+        if n.status == "todo" and n.path not in shown_paths and n.parent_project in active_projects
+    ]
     suggested.sort(key=lambda n: n.modified or datetime.min)
     if _print_section(
         "Suggested Next",
@@ -340,6 +615,7 @@ def daily(limit: int, show_all: bool):
         lambda n: "",
         limit,
         capture=root_lines,
+        verbose=verbose,
     ):
         sections_printed = True
 
@@ -459,16 +735,24 @@ def projects(show_all: bool):
 
 @click.command()
 @click.option("--weeks", "-w", default=1, help="Number of weeks to look back (default: 1)")
-@click.argument("projects", nargs=-1, shell_complete=complete_project)
+@click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
+@click.argument("tag", required=False, shell_complete=complete_project)
 @require_init
-def weekly(weeks: int, projects: tuple):
+def weekly(weeks: int, verbose: bool, tag: str | None):
     """Show weekly summary in tree format.
 
-    Without project filter: shows completed tasks grouped by project.
-    With project filter: shows full project tree (except TODO), ordered by status.
+    Without tag filter: shows completed tasks grouped by project.
+    With tag filter: shows full project tree (except TODO), ordered by status.
 
-    Optionally filter by one or more projects:
-      cor weekly project-a project-b
+    Optionally filter by tag (project name or metadata tag):
+      cor weekly foundation_model
+    
+    A task matches when:
+    - The task's parent project name equals the tag, or
+    - The task has the tag in its metadata, or
+    - Its parent project has the tag (project tags propagate to children).
+
+    Use -v/--verbose to show task descriptions.
     """
     notes_dir = get_notes_dir()
 
@@ -486,8 +770,15 @@ def weekly(weeks: int, projects: tuple):
     if archive_dir.exists():
         notes.extend(find_notes(archive_dir))
 
-    # Filter by projects if specified
-    project_filter = set(projects) if projects else None
+    note_counts = _build_note_counts(notes)
+
+    # Build project -> tags mapping for propagation
+    project_tags: dict[str, set[str]] = {
+        n.path.stem: set(n.tags or []) for n in notes if n.note_type == "project"
+    }
+
+    # Filter by tags if specified
+    project_filter = {tag} if tag else None
 
     # Build project data and task hierarchy
     # project_name -> {done: int, active: int, total: int, high_priority: [tasks]}
@@ -498,6 +789,10 @@ def weekly(weeks: int, projects: tuple):
 
     for n in notes:
         if n.note_type != "task":
+            continue
+
+        # Skip tasks that don't match the tag filter
+        if not _matches_tag(n, tag, project_tags):
             continue
 
         project = n.parent_project or n.path.stem
@@ -534,6 +829,20 @@ def weekly(weeks: int, projects: tuple):
         if parts:
             projects_with_completed.add(parts[0])
 
+    # Filter projects_with_completed by tag if specified
+    if tag:
+        # Keep only projects that match the tag filter
+        filtered_projects = set()
+        for project_name in projects_with_completed:
+            # Check if any task in this project matches the tag filter
+            for task_stem in completed_this_week:
+                if task_stem.startswith(project_name + ".") or task_stem == project_name:
+                    task = all_tasks.get(task_stem)
+                    if task and _matches_tag(task, tag, project_tags):
+                        filtered_projects.add(project_name)
+                        break
+        projects_with_completed = filtered_projects
+
     # Print week header
     if weeks == 1:
         month_name = week_start.strftime("%b")
@@ -541,8 +850,8 @@ def weekly(weeks: int, projects: tuple):
     else:
         header = f"Past {weeks} weeks ({week_start} to {week_end})"
 
-    if project_filter:
-        header += f" [{', '.join(sorted(format_title(p) for p in project_filter))}]"
+    if tag:
+        header += f" [{format_title(tag)}]"
 
     capture_lines: list[str] = []
 
@@ -556,14 +865,22 @@ def weekly(weeks: int, projects: tuple):
     if project_filter:
         for project_name in sorted(project_filter):
             display_project = format_title(project_name)
-            if project_name not in tasks_by_parent and project_name not in project_data:
-                emit(click.style(f"\nProject '{display_project}' not found or has no tasks.", dim=True))
+            # When filtering by tag, show projects/tasks that match the tag
+            matching_tasks = [t for t in all_tasks.values() if _matches_tag(t, tag, project_tags)]
+            matching_projects = set()
+            for t in matching_tasks:
+                if t.parent_project:
+                    matching_projects.add(t.parent_project)
+            
+            if project_name not in matching_projects and project_name not in [t.path.stem for t in matching_tasks if t.parent_project == project_name]:
+                emit(click.style(f"\nProject '{display_project}' not found or has no matching tasks.", dim=True))
                 continue
 
-            stats = project_data.get(project_name, {"done": 0, "active": 0, "total": 0, "high_priority": []})
-            done_count = stats["done"]
-            active_count = stats["active"]
-            total_count = stats["total"]
+            # Only count matching tasks for this project/tag
+            matching_for_project = [t for t in matching_tasks if t.parent_project == project_name or (not t.parent_project and t.path.stem.startswith(project_name))]
+            done_count = sum(1 for t in matching_for_project if t.status in ("done", "dropped"))
+            active_count = sum(1 for t in matching_for_project if t.status in ("active", "waiting"))
+            total_count = len(matching_for_project)
 
             # Project header with counters
             is_project_done = done_count == total_count and total_count > 0
@@ -595,10 +912,13 @@ def weekly(weeks: int, projects: tuple):
                 sort_fn=weekly_sort,
                 render_fn=weekly_render,
                 capture=capture_lines,
+                verbose=verbose,
+                all_notes=notes,
+                note_counts=note_counts,
             )
 
             # List high priority tasks separately if any
-            high_priority = stats["high_priority"]
+            high_priority = [t for t in matching_for_project if t.priority == "high" and t.status not in ("done", "dropped")]
             if high_priority:
                 emit()
                 emit(click.style("  ⚡ High Priority:", fg="magenta", bold=True))
@@ -669,6 +989,9 @@ def weekly(weeks: int, projects: tuple):
             filter_fn=weekly_filter_completed,
             render_fn=weekly_render_completed,
             capture=capture_lines,
+            verbose=verbose,
+            all_notes=notes,
+            note_counts=note_counts,
         )
         emit()
 
@@ -677,9 +1000,11 @@ def weekly(weeks: int, projects: tuple):
 
 
 @click.command(short_help="Show a project's task tree")
+@click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
+@click.option("--depth", "-d", type=int, default=None, help="Maximum depth to display (default: unlimited)")
 @click.argument("project", shell_complete=complete_project)
 @require_init
-def tree(project: str):
+def tree(verbose: bool, depth: int | None, project: str):
     """Show task tree for a project.
 
     Displays tasks in a tree view with [x] or [ ] indicating status.
@@ -687,6 +1012,8 @@ def tree(project: str):
     \b
     Example:
       cor tree myproject
+      cor tree myproject -v         # Show descriptions
+      cor tree myproject --depth 2  # Limit to 2 levels
     """
     notes_dir = get_notes_dir()
 
@@ -699,6 +1026,8 @@ def tree(project: str):
     archive_dir = notes_dir / "archive"
     if archive_dir.exists():
         notes.extend(find_notes(archive_dir))
+
+    note_counts = _build_note_counts(notes)
 
     # Find the project
     project_note = None
@@ -722,10 +1051,22 @@ def tree(project: str):
     # Print project header
     color = PROJECT_COLORS.get(project_note.status)
     click.echo(click.style(f"\n{project_note.title}", fg=color, bold=True))
-    click.echo(click.style(f"({project_note.status or 'no status'})", dim=True))
+    status_line = f"({project_note.status or 'no status'})"
+    project_note_count = note_counts.get(project, 0)
+    if project_note_count:
+        status_line += f" (and {_format_note_label(project_note_count)})"
+    click.echo(click.style(status_line, dim=True))
+
+    # Show project dependencies if any
+    if project_note.requires:
+        dep_details = _format_dependency_indicator(project_note, notes, verbose=True)
+        if dep_details:
+            for detail_line in dep_details.split("\n"):
+                click.echo(click.style(f"  {detail_line}", dim=True, fg='yellow'))
 
     if project not in tasks_by_parent:
-        click.echo("  No tasks found.")
+        suffix = f" (but {_format_note_label(project_note_count)})" if project_note_count else ""
+        click.echo(f"  No tasks found{suffix}.")
     else:
         # Sort function: by status order, then by name
         def sort_tasks(tasks):
@@ -736,29 +1077,38 @@ def tree(project: str):
             tasks_by_parent,
             sort_fn=sort_tasks,
             show_separators=True,
+            verbose=verbose,
+            all_notes=notes,
+            note_counts=note_counts,
+            max_depth=depth,
         )
 
 
-@click.command(short_help="Weekly review summary and insights")
-@click.option("--weeks", "-w", default=1, help="Number of weeks to look back (default: 1)")
+@click.command(short_help="Vault statistics and overview")
+@click.option("--weeks", "-w", default=None, type=int, help="Number of weeks to look back (default: all time)")
 @require_init
-def review(weeks: int):
-    """Weekly review assistant.
+def status(weeks: int | None):
+    """Vault status report.
 
     \b
-    Summarizes:
-    - What moved (status changes, completed items)
-    - What's stale (needs attention)
-    - What's upcoming (due dates, priorities)
+    Shows:
+    - Number of projects and tasks by status
+    - Total lines of content
+    - Activity over specified time period
+    - Git commit activity and line changes
 
     \b
-    Use this for weekly planning and reflection.
+    Examples:
+      cor status              # All time statistics
+      cor status -w 1         # Last week
+      cor status -w 4         # Last 4 weeks
     """
+    import subprocess
+    
     notes_dir = get_notes_dir()
 
     now = datetime.now()
-    start_date = now - timedelta(days=7 * weeks)
-    end_of_week = now + timedelta(days=7)
+    start_date = datetime.min if weeks is None else now - timedelta(days=7 * weeks)
 
     # Get all notes including archived
     notes = find_notes(notes_dir)
@@ -766,142 +1116,104 @@ def review(weeks: int):
     if archive_dir.exists():
         notes.extend(find_notes(archive_dir))
 
-    # Categorize
-    completed = []
-    created = []
-    active = []
-    blocked = []
-    stale = []
-    due_soon = []
-    overdue = []
-    high_priority = []
+    # Categorize by type and status
+    projects = []
+    tasks_by_status = {
+        "todo": [],
+        "active": [],
+        "done": [],
+        "blocked": [],
+        "waiting": [],
+        "dropped": [],
+    }
+    notes_count = 0
+    total_lines = 0
+    modified_count = 0
 
     for n in notes:
         # Skip special files
         if n.note_type in ("backlog", "root"):
             continue
 
-        # Completed this period
-        if n.status in ("done", "dropped") and n.modified and n.modified >= start_date:
-            completed.append(n)
+        # Count content lines (non-empty lines in content)
+        if n.content:
+            content_lines = [line for line in n.content.split("\n") if line.strip()]
+            total_lines += len(content_lines)
 
-        # Created this period
-        if n.created and n.created >= start_date:
-            created.append(n)
+        # Count modifications in period
+        if n.modified and n.modified >= start_date:
+            modified_count += 1
 
-        # Currently active
-        if n.status == "active":
-            active.append(n)
+        # Categorize by type
+        if n.note_type == "project":
+            projects.append(n)
+        elif n.note_type == "task":
+            status_key = n.status or "todo"
+            if status_key in tasks_by_status:
+                tasks_by_status[status_key].append(n)
+        elif n.note_type == "note":
+            notes_count += 1
 
-        # Currently blocked
-        if n.status == "blocked":
-            blocked.append(n)
+    # Print status report
+    period_str = "All Time" if weeks is None else (f"Last Week" if weeks == 1 else f"Last {weeks} Weeks")
+    click.echo(click.style(f"\n═══ Vault Status ({period_str}) ═══\n", bold=True))
 
-        # Stale items (active but not touched)
-        if n.is_stale:
-            stale.append(n)
-
-        # Due soon
-        if n.due and n.due <= end_of_week and n.status not in ("done", "dropped"):
-            if n.is_overdue:
-                overdue.append(n)
-            else:
-                due_soon.append(n)
-
-        # High priority
-        if n.priority == "high" and n.status not in ("done", "dropped"):
-            high_priority.append(n)
-
-    # Print review
-    period_str = "this week" if weeks == 1 else f"past {weeks} weeks"
-    click.echo(click.style(f"\n═══ Weekly Review ({period_str}) ═══\n", bold=True))
-
-    # Summary stats
-    click.echo(click.style("📊 Summary", bold=True))
-    click.echo(f"  Completed: {click.style(str(len(completed)), fg='green', bold=True)}")
-    click.echo(f"  Created:   {click.style(str(len(created)), fg='cyan', bold=True)}")
-    click.echo(f"  Active:    {click.style(str(len(active)), fg='blue', bold=True)}")
-    click.echo(f"  Blocked:   {click.style(str(len(blocked)), fg='red', bold=True)}")
+    # Projects
+    click.echo(click.style("Projects: ", bold=True) + click.style(str(len(projects)), fg='cyan', bold=True))
+    
+    # Break down projects by status
+    project_by_status = {}
+    for p in projects:
+        status_key = p.status or "planning"
+        project_by_status[status_key] = project_by_status.get(status_key, 0) + 1
+    
+    for status_key in ["planning", "active", "paused", "done"]:
+        count = project_by_status.get(status_key, 0)
+        if count > 0:
+            color = PROJECT_COLORS.get(status_key, "white")
+            click.echo(f"    {status_key}: {click.style(str(count), fg=color)}")
     click.echo()
 
-    # What moved (completed)
-    if completed:
-        click.echo(click.style("✅ Completed", fg="green", bold=True))
-        for n in sorted(completed, key=lambda x: x.modified or date.min, reverse=True):
-            symbol = "✓" if n.status == "done" else "~"
-            type_tag = f"[{n.note_type}]" if n.note_type != "task" else ""
-            click.echo(f"  {symbol} {n.title} {type_tag}")
+    # Tasks
+    total_tasks = sum(len(tasks) for tasks in tasks_by_status.values())
+    click.echo(click.style("Tasks: ", bold=True) + click.style(str(total_tasks), fg='cyan', bold=True))
+    
+    for status_key in ["todo", "active", "waiting", "blocked", "done", "dropped"]:
+        count = len(tasks_by_status[status_key])
+        if count > 0:
+            color = TASK_COLORS.get(status_key, "white")
+            symbol = STATUS_SYMBOLS.get(status_key, "")
+            click.echo(f"    {symbol} {status_key}: {click.style(str(count), fg=color)}")
+    click.echo()
+
+    # Notes
+    click.echo(click.style("Notes", bold=True))
+    click.echo(f"  Total: {click.style(str(notes_count), fg='cyan', bold=True)}")
+    click.echo()
+
+    # Content statistics
+    click.echo(click.style("Total lines: ", bold=True) + f"{click.style(str(total_lines), fg='cyan', bold=True)}")
+    if weeks is not None:
+        click.echo(f"  Modified in period: {click.style(str(modified_count), fg='yellow', bold=True)}")
+    click.echo()
+
+    # Git activity statistics
+    git_stats = _get_git_stats(notes_dir, weeks)
+    if git_stats:
+        click.echo(click.style("Git Activity", bold=True))
+        click.echo(f"  Commits: {click.style(str(git_stats['commits']), fg='cyan', bold=True)}")
+        if git_stats['commits'] > 0:
+            click.echo(f"  Lines added: {click.style(f'+{git_stats["additions"]}', fg='green')}")
+            click.echo(f"  Lines deleted: {click.style(f'-{git_stats["deletions"]}', fg='red')}")
+            net_change = git_stats['additions'] - git_stats['deletions']
+            net_color = 'green' if net_change > 0 else ('red' if net_change < 0 else 'white')
+            net_sign = '+' if net_change > 0 else ''
+            click.echo(f"  Net change: {click.style(f'{net_sign}{net_change}', fg=net_color)}")
+            
+            # Activity rate
+            if weeks is not None and weeks > 0:
+                commits_per_day = git_stats['commits'] / (7 * weeks)
+                click.echo(f"  Activity: {click.style(f'{commits_per_day:.1f}', fg='cyan')} commits/day")
         click.echo()
-
-    # What needs attention
-    if overdue:
-        click.echo(click.style("🚨 Overdue", fg="red", bold=True))
-        for n in sorted(overdue, key=lambda x: x.due or date.min):
-            days = (now.date() - n.due).days
-            if days == 1:
-                click.echo(f"  • {n.title} (1d overdue)")
-            else:
-                click.echo(f"  • {n.title} ({days}d overdue)")
-        click.echo()
-
-    if blocked:
-        click.echo(click.style("🔒 Blocked", fg="red", bold=True))
-        for n in blocked:
-            time_str = format_time_ago(n.modified) if n.modified else ""
-            click.echo(f"  • {n.title} (blocked {time_str})" if time_str else f"  • {n.title}")
-        click.echo()
-
-    if stale:
-        click.echo(click.style("💤 Stale (needs attention)", fg="yellow", bold=True))
-        for n in sorted(stale, key=lambda x: x.modified or datetime.min):
-            time_str = format_time_ago(n.modified) if n.modified else ""
-            click.echo(f"  • {n.title} ({time_str})" if time_str else f"  • {n.title}")
-        click.echo()
-
-    # What's upcoming
-    if due_soon:
-        click.echo(click.style("📅 Due this week", fg="cyan", bold=True))
-        for n in sorted(due_soon, key=lambda x: x.due or datetime.max):
-            days = (n.due - now.date()).days
-            day_str = "today" if days == 0 else f"in {days}d"
-            click.echo(f"  • {n.title} ({day_str})")
-        click.echo()
-
-    if high_priority:
-        click.echo(click.style("⚡ High Priority", fg="magenta", bold=True))
-        for n in high_priority:
-            status_str = f"[{n.status}]" if n.status else ""
-            click.echo(f"  • {n.title} {status_str}")
-        click.echo()
-
-    # Currently active work
-    if active:
-        click.echo(click.style("🔧 Currently Active", fg="blue", bold=True))
-        for n in sorted(active, key=lambda x: x.modified or datetime.min, reverse=True):
-            time_str = format_time_ago(n.modified) if n.modified else ""
-            type_tag = f"[{n.note_type}]" if n.note_type != "task" else ""
-            click.echo(f"  • {n.title} ({time_str}) {type_tag}" if time_str else f"  • {n.title} {type_tag}")
-        click.echo()
-
-    # Recommendations
-    click.echo(click.style("💡 Recommendations", bold=True))
-    recommendations = []
-
-    if overdue:
-        recommendations.append(f"Address {len(overdue)} overdue item(s)")
-    if blocked:
-        recommendations.append(f"Unblock {len(blocked)} item(s)")
-    if stale:
-        recommendations.append(f"Review {len(stale)} stale item(s) - update or pause them")
-    if len(active) > 5:
-        recommendations.append(f"Consider focusing - {len(active)} active items is a lot")
-    if not active and not due_soon:
-        recommendations.append("No active work - time to start something new?")
-
-    if recommendations:
-        for rec in recommendations:
-            click.echo(f"  → {rec}")
-    else:
-        click.echo(click.style("  All looking good! 🎉", fg="green"))
 
     click.echo()

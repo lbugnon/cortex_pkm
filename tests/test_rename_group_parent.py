@@ -2,7 +2,7 @@
 
 import pytest
 
-from cor.maintenance import MaintenanceRunner
+from cor.sync.runner import MaintenanceRunner
 
 
 @pytest.fixture

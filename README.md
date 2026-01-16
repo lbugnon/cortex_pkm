@@ -2,7 +2,7 @@
 
 Plain text knowledge management. Track projects, tasks, ideas, and progress using markdown files and git.
 
-Small new year project to try Claude Code :)
+Small new year project to try new coding agents :)
 
 ## Philosophy
 
@@ -40,18 +40,12 @@ The test suite covers:
 mkdir ~/notes
 cd ~/notes
 
-# 2. Initialize git repository (required for automatic date tracking)
-git init
-
-# 3. Initialize Cortex vault
-# This sets the global vault path and installs git hooks
+# 2. Initialize Cortex vault
+# This creates the vault structure, initializes git, and installs git hooks
 cor init
 
 # Or create an example vault to explore features
 cor example-vault
-
-# Configure vault path (optional - defaults to current directory)
-cor config vault ~/notes
 
 # Create a new project
 cor new project my-project
@@ -80,6 +74,7 @@ cor sync
 | `project.task.md` | Task | Actionable item within a project |
 | `project.group.md` | Task Group | Organizes related tasks (also a task itself) |
 | `project.group.task.md` | Task | Nested task under a task group |
+| `project.group.smaller_group.task.md` | Task | Deeply nested task (supports any depth) |
 | `project.note.md` | Note | Reference/thinking, not actionable |
 | `backlog.md` | Backlog | Unsorted inbox for capture |
 | `root.md` | Root | Dashboard/digest of current state |
@@ -135,12 +130,13 @@ tags: [coding, urgent]
 
 | Command | Description |
 |---------|-------------|
-| `cor init` | Initialize vault (creates notes/, templates, root.md, backlog.md) |
+| `cor init` | Initialize vault (creates structure, initializes git, installs hooks) |
 | `cor new <type> <name>` | Create file from template (project, task, note) |
+| `cor expand <task>` | Expand task checklist into individual subtasks |
 | `cor edit <name>` | Open existing file in editor (use `-a` to include archived) |
 | `cor mark <name> <status>` | Change task status (todo, active, blocked, done, dropped) |
 | `cor sync` | Pull, commit all changes, and push to remote |
-| `cor daily` | Show today's tasks and agenda |
+| `cor daily [tag]` | Show today's tasks; when `tag` is provided, only tasks matching the tag (by project name, task tags, or project tags) |
 | `cor weekly` | Show this week's summary |
 | `cor projects` | List active projects with status and last activity (from children) |
 | `cor tree <project>` | Show task tree for a project with status symbols |
@@ -151,22 +147,94 @@ tags: [coding, urgent]
 | `cor process` | Process backlog items into projects |
 | `cor hooks install` | Install pre-commit hook and shell completion |
 | `cor hooks uninstall` | Remove git hooks |
-| `cor config set vault <path>` | Set global vault path |
-| `cor config show` | Show current configuration |
+| `cor config vault <path>` | Set global vault path |
+| `cor config` | Show current configuration |
 | `cor maintenance sync` | Manually run archive/status sync |
+
+### Natural Language Dates and Tags
+
+The `cor new task` command supports natural language date and tag parsing:
+
+**Due Dates**: Use `due <date>` to set a due date with natural language
+```bash
+cor new task project.taskname description due tomorrow
+cor new task project.taskname description due next friday
+cor new task project.taskname description due 2026-02-15
+```
+
+**Tags**: Use `tag <tag1> <tag2>` to add tags
+```bash
+cor new task project.taskname description tag urgent
+cor new task project.taskname description tag ml nlp research
+```
+
+**Combined**: Use both in the same command
+```bash
+cor new task project.taskname finish the pipeline due tomorrow tag urgent ml
+cor new task project.taskname code review due next friday tag review quality
+```
+
+Supported date formats include: tomorrow, today, next friday, in 3 days, 2026-02-15, and many more natural language expressions.
+
+### References (Bibliography)
+
+Manage bibliography as markdown notes in `ref/` and a BibLaTeX file `ref/references.bib`.
+
+- **Add**: Add a reference from a DOI or URL.
+   - Command: `cor ref add <identifier> [--key KEY] [--tags TAG ...] [--no-edit]`
+   - Identifier can be:
+      - A DOI: `10.xxxx/abcd.2024`
+      - A DOI URL: `https://doi.org/10.xxxx/abcd.2024` or publisher paths containing a DOI (e.g., `https://www.biorxiv.org/content/10.1101/...`)
+      - An arXiv URL or ID: `https://arxiv.org/abs/1706.03762` or `1706.03762` (mapped to `10.48550/arXiv.<id>`)
+   - Behavior: creates `ref/<citekey>.md` and updates `ref/references.bib`.
+   - Note: does not scrape publisher pages. If the URL does not contain a DOI, a friendly error explains how to supply one.
+
+- **List**: Show all references.
+   - Command: `cor ref list [--format table|short]`
+
+- **Show**: Display details for a reference.
+   - Command: `cor ref show <citekey>`
+
+- **Edit**: Open the reference note.
+   - Command: `cor ref edit <citekey>`
+
+- **Delete**: Remove the reference note.
+   - Command: `cor ref del <citekey> [--force]`
+
+- **Search** (experimental): Text search across stored reference metadata.
+   - Command: `cor ref search <query> [--limit N]`
+
+Examples:
+
+```bash
+# Add from DOI
+cor ref add 10.1101/2025.07.24.666581
+
+# Add from DOI URL
+cor ref add https://doi.org/10.1101/2025.07.24.666581
+
+# Add from publisher URL (DOI embedded in path)
+cor ref add https://www.biorxiv.org/content/10.1101/2025.07.24.666581v1
+
+# Add from arXiv ID
+cor ref add 1706.03762
+
+# Custom citekey and tags
+cor ref add 10.1101/2025.07.24.666581 --key smith2026transformers --tags ml --tags nlp
+```
 
 ## Configuration
 
 ### Vault Path Setup
 
-Cortex requires your vault path to be configured in `~/.config/cortex/config.yaml`. This is set automatically by `cor init`, but can be changed anytime:
+Cortex automatically configures your vault path in `~/.config/cortex/config.yaml` when you run `cor init`. You can change it anytime:
 
 ```bash
 # Set during initial setup
 cor init
 
 # Or reconfigure later
-cor config set vault /path/to/notes
+cor config vault /path/to/notes
 ```
 
 Once configured, you can run `cor` commands from any directory:
@@ -174,9 +242,8 @@ Once configured, you can run `cor` commands from any directory:
 ```bash
 # Commands work from anywhere after init
 cd /tmp
-cor status              # Uses configured vault
-cor new task my-project.quick-idea
 cor daily
+cor new task my-project.quick-idea
 ```
 
 ### Config File Format
@@ -191,8 +258,9 @@ verbosity: 1                   # 0=silent, 1=normal, 2=verbose, 3=debug
 ### Configuration Commands
 
 ```bash
-cor config show              # Display current config
-cor config set vault <path>  # Set vault path
+cor config                # Display current config
+cor config vault <path>   # Set vault path
+cor config verbosity <0-3> # Set verbosity level
 ```
 
 ### File Hierarchy & Linking
@@ -242,6 +310,32 @@ cor rename old-project new-project --dry-run
 git add -A && git commit -m "Rename project"
 ```
 
+### Converting Tasks to Groups
+
+When designing complex features, you might start with a single task and then realize it needs to be broken down. Cortex makes this easy by expanding checklist items into individual subtasks:
+
+**Before** - Single task with checklist (`my-project.feature.md`):
+```markdown
+## Description
+
+Implement new authentication feature:
+
+- [ ] design-api
+- [ ] implement-backend
+- [ ] write-tests
+- [ ] update-documentation
+```
+
+**After running** `cor expand my-project.feature`:
+- Creates `my-project.feature.design-api.md`
+- Creates `my-project.feature.implement-backend.md`
+- Creates `my-project.feature.write-tests.md`
+- Creates `my-project.feature.update-documentation.md`
+- Updates `my-project.feature.md` with proper task links
+- Removes the original checklist
+
+The task becomes a proper task group with full hierarchy and linking support.
+
 ### Completion Configuration
 
 Control fuzzy completion behavior via environment variable:
@@ -256,73 +350,15 @@ export COR_COMPLETE_COLLAPSE_100=1
 
 ## Shell Setup
 
-### Installation
-````
+Shell completion is automatically configured when you run `cor init`. The setup detects your shell (zsh or bash) and adds the necessary completion code to your shell config file.
 
-Run once to install git hooks and enable shell completion:
+### Zsh
 
-```bash
-cor hooks install
-```
-
-This installs:
-- Git pre-commit hook (auto-updates modified dates, archives completed items, validates consistency)
-- Shell completion script to your conda environment (if using conda)
-
-### Zsh Configuration
-
-**Important:** Do NOT manually run `compinit` after `cor hooks install`. The completion script handles initialization automatically.
-
-Add to your `~/.zshrc` to enable Tab cycling through suggestions:
-
-```zsh
-# Enable Tab to cycle through completion matches (recommended)
-bindkey '^I' menu-complete
-bindkey '^[[Z' reverse-menu-complete  # Shift-Tab for reverse
-```
-
-Then reactivate your environment:
-```zsh
-conda deactivate
-conda activate <your-env-name>
-```
-
-**Test it:**
-```zsh
-cor edit diffusion<TAB>           # Shows matching files
-<TAB> again                        # Cycles to next match
-```
-
-### Bash Configuration
-
-Bash completion is automatically enabled. Add to your `~/.bashrc` for menu-style cycling:
-
-```bash
-# Show all completions on first Tab, cycle on subsequent Tabs
-bind 'set show-all-if-ambiguous on'
-bind 'TAB:menu-complete'
-bind '"\e[Z": reverse-menu-complete'  # Shift-Tab for reverse
-```
+After running `cor init`, optionally add to your `~/.zshrc` to enable Tab cycling through suggestions:
 
 Then reload:
-```bash
-source ~/.bashrc
-```
-
-**Test it:**
-```bash
-cor edit diffusion<TAB>           # Shows matching files
-<TAB> again                        # Cycles to next match
-```
-
-### Tab Completion Examples
-
-Once set up:
-
-```bash
-cor new task my-<TAB>              # Completes project names
-cor edit dif<TAB>                  # Fuzzy matches + cycles
-cor mark impl <TAB>                # Shows task status options
+```zsh
+source ~/.zshrc # or .bashrc
 ```
 
 ## Directory Structure
@@ -333,10 +369,12 @@ cor mark impl <TAB>                # Shows task status options
 ~/.config/cortex/
 └── config.yaml             # Global config (vault path, verbosity)
 
-~/.miniconda3/etc/conda/activate.d/
-└── cor-completion.sh       # Shell completion (zsh & bash)
+~/.zshrc or ~/.bashrc       # Shell completion automatically added here
 
 your-vault/                 # Your notes directory
+├── .git/                   # Git repository (auto-initialized by cor init)
+│   └── hooks/
+│       └── pre-commit      # Auto-maintenance hook
 ├── root.md                 # Dashboard/digest of current state
 ├── backlog.md              # Unsorted inbox for capture
 ├── archive/                # Completed/archived items
@@ -393,16 +431,7 @@ cortex_pkm/                 # Repository root
 
 ## Git Hooks & Automation
 
-The pre-commit hook automatically runs on every commit to keep your vault consistent.
-
-### Installation
-
-```bash
-cor hooks install    # Enable pre-commit hook + shell completion
-cor hooks uninstall  # Disable pre-commit hook
-```
-
-The hook is automatically installed when you run `cor init` in a git repository.
+The pre-commit hook automatically runs on every commit to keep your vault consistent. It is automatically installed when you run `cor init`.
 
 ### What the Hook Does
 

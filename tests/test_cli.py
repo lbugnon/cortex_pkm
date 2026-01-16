@@ -11,6 +11,8 @@ Tests cover:
 """
 
 import pytest
+import frontmatter
+from datetime import date
 from click.testing import CliRunner
 
 from cor.cli import cli
@@ -72,7 +74,7 @@ class TestNew:
         """cor new project should create a project file."""
         monkeypatch.chdir(initialized_vault)
 
-        result = runner.invoke(cli, ["new", "project", "testproject", "--no_edit"])
+        result = runner.invoke(cli, ["new", "project", "testproject", "--no-edit"])
         assert result.exit_code == 0, f"New project failed: {result.output}"
         assert (initialized_vault / "testproject.md").exists()
 
@@ -80,7 +82,7 @@ class TestNew:
         """New project should have proper frontmatter."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "testproject", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "testproject", "--no-edit"])
 
         content = (initialized_vault / "testproject.md").read_text()
         assert "status: planning" in content, "Project should have planning status"
@@ -91,10 +93,10 @@ class TestNew:
         monkeypatch.chdir(initialized_vault)
 
         # Create project first
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         # Create task
-        result = runner.invoke(cli, ["new", "task", "myproj.mytask", "--no_edit"])
+        result = runner.invoke(cli, ["new", "task", "myproj.mytask", "some text"])
         assert result.exit_code == 0, f"New task failed: {result.output}"
         assert (initialized_vault / "myproj.mytask.md").exists()
 
@@ -102,8 +104,8 @@ class TestNew:
         """New task should have link back to parent project."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.mytask", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.mytask", "task work"])
 
         content = (initialized_vault / "myproj.mytask.md").read_text()
         assert "parent: myproj" in content, "Task should have parent field"
@@ -113,8 +115,8 @@ class TestNew:
         """New task should be added to project's Tasks section."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.mytask", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.mytask", "task work"])
 
         content = (initialized_vault / "myproj.md").read_text()
         assert "(myproj.mytask)" in content, "Project should link to task"
@@ -124,32 +126,323 @@ class TestNew:
         """cor new task project.group.task should create group if it doesn't exist."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        result = runner.invoke(cli, ["new", "task", "myproj.mygroup.mytask", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        result = runner.invoke(cli, ["new", "task", "myproj.mygroup.mytask", "task work"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert (initialized_vault / "myproj.mygroup.md").exists(), "Group should be created"
         assert (initialized_vault / "myproj.mygroup.mytask.md").exists(), "Task should be created"
 
+    def test_new_task_creates_deeper_hierarchy(self, runner, initialized_vault, monkeypatch):
+        """cor new task project.group.smaller_group.task should create all intermediate groups."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        result = runner.invoke(cli, ["new", "task", "myproj.experiments.lr.sweep", "LR sweep task"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        # Check all intermediate groups are created
+        assert (initialized_vault / "myproj.experiments.md").exists(), "First group should be created"
+        assert (initialized_vault / "myproj.experiments.lr.md").exists(), "Second group should be created"
+        assert (initialized_vault / "myproj.experiments.lr.sweep.md").exists(), "Task should be created"
+        
+        # Verify parent links are correct
+        task_content = (initialized_vault / "myproj.experiments.lr.sweep.md").read_text()
+        assert "parent: myproj.experiments.lr" in task_content, "Task should have correct parent"
+        
+        # Verify task is added to immediate parent
+        parent_content = (initialized_vault / "myproj.experiments.lr.md").read_text()
+        assert "(myproj.experiments.lr.sweep)" in parent_content, "Task should be linked in parent"
+
     def test_new_project_rejects_dots(self, runner, initialized_vault, monkeypatch):
         """Project names cannot contain dots."""
         monkeypatch.chdir(initialized_vault)
 
-        result = runner.invoke(cli, ["new", "project", "my.project", "--no_edit"])
+        result = runner.invoke(cli, ["new", "project", "my.project", "--no-edit"])
         assert result.exit_code != 0, "Should reject project name with dots"
 
     def test_new_note_under_project(self, runner, initialized_vault, monkeypatch):
         """cor new note project.notename should create note under project."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        result = runner.invoke(cli, ["new", "note", "myproj.meeting", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        result = runner.invoke(cli, ["new", "note", "myproj.meeting", "meeting notes"])
 
         assert result.exit_code == 0, f"New note failed: {result.output}"
         assert (initialized_vault / "myproj.meeting.md").exists()
 
         content = (initialized_vault / "myproj.meeting.md").read_text()
         assert "type: note" in content, "Note should have type: note"
+
+    def test_expand_parses_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor expand should parse checklist from task file."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create a project and task with checklist
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        # Add checklist to task
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+This is a feature with subtasks:
+
+- [ ] implement-api
+- [ ] write-tests
+- [ ] update-docs
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        # Expand task to group
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
+        assert result.exit_code == 0, f"Expand failed: {result.output}"
+        
+        # Check subtasks created
+        assert (initialized_vault / "myproj.feature.implement-api.md").exists()
+        assert (initialized_vault / "myproj.feature.write-tests.md").exists()
+        assert (initialized_vault / "myproj.feature.update-docs.md").exists()
+
+    def test_expand_removes_checklist_from_task(self, runner, initialized_vault, monkeypatch):
+        """cor expand should remove checklist items from original task."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] subtask1
+- [ ] subtask2
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check checklist removed
+        updated_content = task_file.read_text()
+        assert "- [ ] subtask1" not in updated_content
+        assert "- [ ] subtask2" not in updated_content
+
+    def test_expand_adds_subtask_links(self, runner, initialized_vault, monkeypatch):
+        """cor expand should add links to subtasks in task file."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] api-work
+- [ ] test-work
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check task file has links
+        updated_content = task_file.read_text()
+        assert "(myproj.feature.api-work)" in updated_content
+        assert "(myproj.feature.test-work)" in updated_content
+
+    def test_expand_subtasks_have_parent_link(self, runner, initialized_vault, monkeypatch):
+        """Subtasks created by expand should link back to group."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = "## Description\n\n- [ ] subtask1\n"
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check subtask has parent link
+        subtask = initialized_vault / "myproj.feature.subtask1.md"
+        content = subtask.read_text()
+        assert "parent: myproj.feature" in content
+        assert "(myproj.feature)" in content
+
+    def test_expand_requires_task_file(self, runner, initialized_vault, monkeypatch):
+        """cor expand should fail if task file doesn't exist."""
+        monkeypatch.chdir(initialized_vault)
+
+        result = runner.invoke(cli, ["expand", "nonexistent"])
+        assert result.exit_code != 0
+        assert "No files found" in result.output or "not found" in result.output.lower()
+
+    def test_expand_requires_checklist(self, runner, initialized_vault, monkeypatch):
+        """cor expand should fail if no checklist items found."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        # No checklist in task
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
+        assert result.exit_code != 0
+        assert "No checklist items" in result.output
+
+    def test_expand_strips_dots_from_names(self, runner, initialized_vault, monkeypatch):
+        """cor expand should strip dots from task names (dots are hierarchy separators)."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+- [ ] update-v1.2.3
+- [ ] add-config.yaml
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+
+        runner.invoke(cli, ["expand", "myproj.feature"])
+
+        # Dots are stripped from task names (dots are hierarchy separators)
+        assert (initialized_vault / "myproj.feature.update-v123.md").exists()
+        assert (initialized_vault / "myproj.feature.add-configyaml.md").exists()
+
+    def test_expand_handles_all_cortex_status_symbols(self, runner, initialized_vault, monkeypatch):
+        """cor expand should parse checklist items with all Cortex status symbols."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        post.content = """## Description
+
+Mix of different statuses:
+
+- [ ] todo-task
+- [.] active-task
+- [o] blocked-task
+- [/] waiting-task
+- [x] done-task
+- [~] dropped-task
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        runner.invoke(cli, ["expand", "myproj.feature"])
+        
+        # Check that all tasks are created regardless of status symbol
+        assert (initialized_vault / "myproj.feature.todo-task.md").exists()
+        assert (initialized_vault / "myproj.feature.active-task.md").exists()
+        assert (initialized_vault / "myproj.feature.blocked-task.md").exists()
+        assert (initialized_vault / "myproj.feature.waiting-task.md").exists()
+        assert (initialized_vault / "myproj.feature.done-task.md").exists()
+        assert (initialized_vault / "myproj.feature.dropped-task.md").exists()
+        
+        # Check that all checklist items are removed
+        updated_content = task_file.read_text()
+        assert "- [ ] todo-task" not in updated_content
+        assert "- [.] active-task" not in updated_content
+        assert "- [o] blocked-task" not in updated_content
+        assert "- [/] waiting-task" not in updated_content
+        assert "- [x] done-task" not in updated_content
+        assert "- [~] dropped-task" not in updated_content
+        
+        # Check that tasks have the correct status from their checklist symbols
+        todo_task = frontmatter.load(initialized_vault / "myproj.feature.todo-task.md")
+        assert todo_task['status'] == 'todo'
+        
+        active_task = frontmatter.load(initialized_vault / "myproj.feature.active-task.md")
+        assert active_task['status'] == 'active'
+        
+        blocked_task = frontmatter.load(initialized_vault / "myproj.feature.blocked-task.md")
+        assert blocked_task['status'] == 'blocked'
+        
+        waiting_task = frontmatter.load(initialized_vault / "myproj.feature.waiting-task.md")
+        assert waiting_task['status'] == 'waiting'
+        
+        done_task = frontmatter.load(initialized_vault / "myproj.feature.done-task.md")
+        assert done_task['status'] == 'done'
+        
+        dropped_task = frontmatter.load(initialized_vault / "myproj.feature.dropped-task.md")
+        assert dropped_task['status'] == 'dropped'
+
+class TestLog:
+    """Test cor log command."""
+
+    def test_log_appends_to_inbox(self, runner, initialized_vault, monkeypatch):
+        """cor log should append bullet to backlog inbox."""
+        monkeypatch.chdir(initialized_vault)
+
+        result = runner.invoke(cli, ["log", "Capture an idea"])
+        assert result.exit_code == 0, f"Log failed: {result.output}"
+
+        content = (initialized_vault / "backlog.md").read_text()
+        assert "- Capture an idea" in content
+
+    def test_log_creates_inbox_if_missing(self, runner, initialized_vault, monkeypatch):
+        """log should create Inbox section if absent."""
+        monkeypatch.chdir(initialized_vault)
+
+        backlog_path = initialized_vault / "backlog.md"
+        today = date.today().isoformat()
+        backlog_path.write_text(f"""\
+---
+created: {today}
+modified: {today}
+---
+# Backlog
+""")
+
+        result = runner.invoke(cli, ["log", "New backlog item"])
+        assert result.exit_code == 0, f"Log failed: {result.output}"
+
+        content = backlog_path.read_text()
+        assert "## Inbox" in content
+        assert "- New backlog item" in content
+
+
+class TestTag:
+    """Test cor tag command."""
+
+    def test_tag_add_and_remove(self, runner, initialized_vault, monkeypatch):
+        """cor tag should add and remove tags on a file."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "tagproj", "--no-edit"])
+
+        add = runner.invoke(cli, ["tag", "tagproj", "ml", "research"])
+        assert add.exit_code == 0, f"Add tags failed: {add.output}"
+
+        post = frontmatter.load(initialized_vault / "tagproj.md")
+        assert post.get("tags") == ["ml", "research"]
+
+        remove = runner.invoke(cli, ["tag", "tagproj", "-d", "ml"])
+        assert remove.exit_code == 0, f"Remove tag failed: {remove.output}"
+
+        post = frontmatter.load(initialized_vault / "tagproj.md")
+        assert post.get("tags") == ["research"]
 
 
 class TestStatus:
@@ -160,8 +453,8 @@ class TestStatus:
         monkeypatch.chdir(initialized_vault)
 
         # Create a task with past due date
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.overdue", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.overdue", "task work"])
 
         task_path = initialized_vault / "myproj.overdue.md"
         content = task_path.read_text()
@@ -179,8 +472,8 @@ class TestProjects:
         """cor projects should list all projects."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "proj1", "--no_edit"])
-        runner.invoke(cli, ["new", "project", "proj2", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "proj1", "--no-edit"])
+        runner.invoke(cli, ["new", "project", "proj2", "--no-edit"])
 
         result = runner.invoke(cli, ["projects"])
         assert result.exit_code == 0
@@ -191,7 +484,7 @@ class TestProjects:
         """cor projects should show project status."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
         
         result = runner.invoke(cli, ["projects"])
         assert "planning" in result.output.lower(), "Should show planning status" 
@@ -204,9 +497,9 @@ class TestTree:
         """cor tree should show project tasks."""
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["tree", "myproj"])
         assert result.exit_code == 0, f"Tree failed: {result.output}"
@@ -217,14 +510,56 @@ class TestTree:
         """cor tree should show nested task groups."""
         monkeypatch.chdir(initialized_vault)
         runner.invoke(cli, ["init", "--yes"])
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.group.subtask", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.subtask", "task work"])
 
         result = runner.invoke(cli, ["tree", "myproj"])
         assert result.exit_code == 0
         # Should show group and subtask
         assert "Group" in result.output or "group" in result.output.lower()
         assert "Subtask" in result.output or "subtask" in result.output.lower()
+
+    def test_tree_shows_note_count(self, runner, initialized_vault, monkeypatch):
+        """cor tree should mention attached notes."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "note", "myproj.brainstorm", "ideas"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "note", "myproj.task1.context", "context"])
+
+        result = runner.invoke(cli, ["tree", "myproj"])
+        assert result.exit_code == 0, f"Tree failed: {result.output}"
+
+        output = result.output.lower()
+        assert "and 1 note" in output, "Should show project-level note count"
+        assert any("task1" in line and "and 1 note" in line for line in output.splitlines()), "Task should surface attached note count"
+
+    def test_tree_depth_option(self, runner, initialized_vault, monkeypatch):
+        """cor tree --depth should limit display depth."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create nested structure: project > g1 > sg1 > task1
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.g1.sg1.task1", "deep task"])
+        runner.invoke(cli, ["new", "task", "myproj.g1.task2", "mid task"])
+
+        # Without depth limit: should show all levels
+        result = runner.invoke(cli, ["tree", "myproj"])
+        assert result.exit_code == 0
+        assert "task1" in result.output.lower(), "Should show deeply nested task without depth limit"
+
+        # With depth=1: should not show task1 (too deep)
+        result = runner.invoke(cli, ["tree", "myproj", "--depth", "1"])
+        assert result.exit_code == 0
+        assert "g1" in result.output.lower(), "Should show first level group"
+        assert "task1" not in result.output.lower(), "Should not show deeply nested task with depth=1"
+        assert "task2" in result.output.lower(), "Should show task at depth 1"
+
+        # With depth=2: should show task1
+        result = runner.invoke(cli, ["tree", "myproj", "--depth", "2"])
+        assert result.exit_code == 0
+        assert "task1" in result.output.lower(), "Should show deeply nested task with depth=2"
 
 
 class TestRename:
@@ -240,8 +575,8 @@ class TestRename:
         subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=initialized_vault, capture_output=True)
         subprocess.run(["git", "config", "user.name", "Test"], cwd=initialized_vault, capture_output=True)
 
-        runner.invoke(cli, ["new", "project", "oldname", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "oldname.task1", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "oldname", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "oldname.task1", "task work"])
 
         result = runner.invoke(cli, ["rename", "oldname", "newname"])
         assert result.exit_code == 0, f"Rename failed: {result.output}"
@@ -261,8 +596,8 @@ class TestRename:
         subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=initialized_vault, capture_output=True)
         subprocess.run(["git", "config", "user.name", "Test"], cwd=initialized_vault, capture_output=True)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.oldtask", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.oldtask", "task work"])
 
         # Rename task
         result = runner.invoke(cli, ["rename", "myproj.oldtask", "myproj.newtask"])
@@ -273,25 +608,6 @@ class TestRename:
         assert "(myproj.newtask)" in content, "Project should link to renamed task"
         assert "(myproj.oldtask)" not in content, "Old link should not exist"
 
-    def test_rename_dry_run(self, runner, initialized_vault, monkeypatch):
-        """cor rename --dry-run should preview without changing."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
-        monkeypatch.chdir(initialized_vault)
-
-        import subprocess
-        subprocess.run(["git", "init"], cwd=initialized_vault, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=initialized_vault, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=initialized_vault, capture_output=True)
-
-        runner.invoke(cli, ["new", "project", "oldname", "--no_edit"])
-
-        result = runner.invoke(cli, ["rename", "oldname", "newname", "--dry-run"])
-        assert result.exit_code == 0
-
-        # Files should not be changed
-        assert (initialized_vault / "oldname.md").exists(), "Dry run should not rename"
-        assert not (initialized_vault / "newname.md").exists()
-
 
 class TestGroup:
     """Test cor group command."""
@@ -301,9 +617,9 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.refactor", "task1", "task2"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -316,9 +632,9 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1", "task2"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -334,8 +650,8 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -350,8 +666,8 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -366,9 +682,9 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task2", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task work"])
+        runner.invoke(cli, ["new", "task", "myproj.task2", "task work"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "task1", "task2"])
         assert result.exit_code == 0, f"Group failed: {result.output}"
@@ -377,22 +693,6 @@ class TestGroup:
         content = (initialized_vault / "myproj.mygroup.md").read_text()
         assert "(myproj.mygroup.task1)" in content, "Group should link to task1"
         assert "(myproj.mygroup.task2)" in content, "Group should link to task2"
-
-    def test_group_dry_run(self, runner, initialized_vault, monkeypatch):
-        """cor group --dry-run should preview without changing."""
-        monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
-        monkeypatch.chdir(initialized_vault)
-
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
-
-        result = runner.invoke(cli, ["group", "myproj.mygroup", "task1", "--dry-run"])
-        assert result.exit_code == 0
-        assert "Dry Run" in result.output
-
-        # Files should not be changed
-        assert (initialized_vault / "myproj.task1.md").exists(), "Dry run should not move task"
-        assert not (initialized_vault / "myproj.mygroup.md").exists(), "Dry run should not create group"
 
     def test_group_requires_project(self, runner, initialized_vault, monkeypatch):
         """cor group should fail if project doesn't exist."""
@@ -408,7 +708,7 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup"])
         assert result.exit_code != 0
@@ -419,7 +719,7 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
 
         result = runner.invoke(cli, ["group", "myproj.mygroup", "nonexistent"])
         assert result.exit_code != 0
@@ -430,9 +730,9 @@ class TestGroup:
         monkeypatch.setenv("CORTEX_VAULT", str(initialized_vault))
         monkeypatch.chdir(initialized_vault)
 
-        runner.invoke(cli, ["new", "project", "myproj", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.existinggroup", "--no_edit"])
-        runner.invoke(cli, ["new", "task", "myproj.task1", "--no_edit"])
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.existinggroup", "some text"])
+        runner.invoke(cli, ["new", "task", "myproj.task1", "task info"])
 
         result = runner.invoke(cli, ["group", "myproj.existinggroup", "task1"])
         assert result.exit_code != 0

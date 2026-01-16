@@ -1,6 +1,8 @@
-"""Interactive processing commands for Cortex CLI (process)."""
+"""Interactive processing commands for Cortex CLI (process).
+"""
 
 import re
+import shutil
 
 import click
 
@@ -18,6 +20,8 @@ from ..utils import (
 )
 
 from ..completions import complete_project
+from ..search.fuzzy import fuzzy_match
+from simple_term_menu import TerminalMenu
 
 @click.command(short_help="Interactive backlog processing")
 @require_init
@@ -68,7 +72,7 @@ def process():
     projects = get_projects()
 
     log_info(click.style(f"\nProcessing {len(inbox_items)} backlog items...\n", bold=True))
-    log_verbose("Commands: [p]roject, [k]eep, [d]elete, [q]uit\n")
+    log_verbose("Commands: [m]ove, [c]reate project, [k]eep, [d]elete, [q]uit\n")
 
     items_to_remove = []  # Line indices to remove
     items_to_keep = []    # Items to keep
@@ -79,7 +83,7 @@ def process():
         while True:
             choice = click.prompt(
                 "  Action",
-                type=click.Choice(["p", "k", "d", "q"]),
+                type=click.Choice(["m", "c", "k", "d", "q"]),
                 show_choices=True,
                 default="k"
             )
@@ -106,80 +110,138 @@ def process():
                 items_to_remove.append(line_idx)
                 break
 
-            elif choice == "p":
-                if not projects:
-                    click.echo(click.style("  No projects found. Create one first.", fg="red"))
-                    continue
+            elif choice == "m":
+                # Select a parent (project or project.group), creating groups if needed, then create task
+                # Query parent
+                parent_query = click.prompt("  Parent (project or project.group)", default="").strip()
+                parent_stem = None
 
-                # Show numbered project list
-                click.echo("\n  Available projects:")
-                for i, proj in enumerate(projects, 1):
-                    click.echo(f"    {i}. {proj}")
-
-                proj_choice = click.prompt(
-                    "  Select project (number or name)",
-                    default="1"
-                )
-
-                # Parse choice
-                selected_project = None
-                try:
-                    idx = int(proj_choice) - 1
-                    if 0 <= idx < len(projects):
-                        selected_project = projects[idx]
-                except ValueError:
-                    # Try matching by name
-                    if proj_choice in projects:
-                        selected_project = proj_choice
+                if parent_query:
+                    # Try exact parent
+                    candidate_path = notes_dir / f"{parent_query}.md"
+                    if candidate_path.exists():
+                        parent_stem = parent_query
                     else:
-                        # Partial match
-                        matches = [p for p in projects if proj_choice.lower() in p.lower()]
-                        if len(matches) == 1:
-                            selected_project = matches[0]
+                        # Fuzzy select among existing projects and direct groups
+                        all_stems = [s for s in get_projects()]
+                        for p in get_projects():
+                            for gp in (notes_dir.glob(f"{p}.*.md")):
+                                parts = gp.stem.split(".")
+                                if len(parts) == 2:
+                                    all_stems.append(gp.stem)
 
-                if not selected_project:
-                    click.echo(click.style("  Invalid project. Try again.", fg="red"))
+                        candidates = [(s, False) for s in sorted(set(all_stems))]
+                        matches = fuzzy_match(parent_query, candidates, limit=10, score_cutoff=40)
+                        options = [f"{stem}  [{score}%]" for stem, _, score in matches]
+                        options.append("[Cancel]")
+                        if matches:
+                            menu = TerminalMenu(
+                                options,
+                                title="  Select parent (arrows, Enter)",
+                                menu_cursor_style=("fg_cyan", "bold"),
+                                menu_highlight_style=("bg_cyan", "fg_black"),
+                            )
+                            sel = menu.show()
+                            if sel is not None and sel != len(options) - 1:
+                                parent_stem = matches[sel][0]
+                else:
+                    # No query: list top projects
+                    if not projects:
+                        click.echo(click.style("  No projects found.", fg="red"))
+                        continue
+                    options = [p for p in projects[:10]] + ["[Cancel]"]
+                    menu = TerminalMenu(
+                        options,
+                        title="  Select project (arrows, Enter)",
+                        menu_cursor_style=("fg_cyan", "bold"),
+                        menu_highlight_style=("bg_cyan", "fg_black"),
+                    )
+                    sel = menu.show()
+                    if sel is not None and sel != len(options) - 1:
+                        parent_stem = options[sel]
+
+                if not parent_stem:
+                    click.echo(click.style("  No parent selected.", fg="yellow"))
                     continue
 
-                # Convert item to task name (sanitize)
+                # Ensure parent hierarchy exists (create any missing groups)
+                parent_parts = parent_stem.split(".")
+                for i in range(1, len(parent_parts)):
+                    group_stem = ".".join(parent_parts[:i+1])
+                    group_path = notes_dir / f"{group_stem}.md"
+                    archive_dir = notes_dir / "archive"
+                    archived_group_path = archive_dir / f"{group_stem}.md"
+
+                    if archived_group_path.exists() and not group_path.exists():
+                        shutil.move(str(archived_group_path), group_path)
+
+                    if not group_path.exists():
+                        group_template = get_template("task")
+                        group_parent = ".".join(parent_parts[:i]) if i > 1 else parent_parts[0]
+                        group_name = parent_parts[i]
+                        group_content = render_template(group_template, group_name, group_parent, format_title(group_parent.split(".")[-1]))
+                        group_path.write_text(group_content)
+                        add_task_to_project(notes_dir / f"{group_parent}.md", group_name, group_stem)
+
+                # Create the task under immediate parent
                 task_name = re.sub(r'[^a-zA-Z0-9_-]', '_', item_text.lower())
                 task_name = re.sub(r'_+', '_', task_name).strip('_')[:50]
+                task_name = click.prompt("  Task name", default=task_name)
 
-                task_name = click.prompt(
-                    "  Task name",
-                    default=task_name
-                )
-
-                # Create task file
-                task_filename = f"{selected_project}.{task_name}"
+                task_filename = f"{parent_stem}.{task_name}"
                 filepath = notes_dir / f"{task_filename}.md"
-
                 if filepath.exists():
                     click.echo(click.style(f"  Task already exists: {filepath}", fg="red"))
                     continue
 
-                # Read and render template
                 template = get_template("task")
-                task_content = render_template(
-                    template, task_name, selected_project, format_title(selected_project)
-                )
-
-                # Add original item text to description
-                task_content = task_content.replace(
-                    "## Description\n",
-                    f"## Description\n{item_text}\n"
-                )
-
+                parent_title = format_title(parent_stem.split(".")[-1])
+                task_content = render_template(template, task_name, parent_stem, parent_title)
+                task_content = task_content.replace("## Description\n", f"## Description\n{item_text}\n")
                 filepath.write_text(task_content)
-                log_info(click.style(f"  Created {filepath}", fg="green"))
-
-                # Add task to project's Tasks section
-                project_path = notes_dir / f"{selected_project}.md"
-                add_task_to_project(project_path, task_name, task_filename)
-                log_info(click.style(f"  Added to {project_path}", fg="green"))
+                add_task_to_project(notes_dir / f"{parent_stem}.md", task_name, task_filename)
+                log_info(click.style(f"  Created {filepath} and added to {parent_stem}.md", fg="green"))
 
                 items_to_remove.append(line_idx)
                 break
+
+            elif choice == "c":
+                # Create a new project and file this item as its first task
+                new_proj_raw = click.prompt("  New project name", default=re.sub(r'[^a-zA-Z0-9_-]', '_', item_text.lower()))
+                new_project = re.sub(r'_+', '_', new_proj_raw).strip('_')[:50]
+
+                project_path = notes_dir / f"{new_project}.md"
+                if project_path.exists():
+                    click.echo(click.style("  Project already exists.", fg="yellow"))
+                else:
+                    proj_template = get_template("project")
+                    proj_content = render_template(proj_template, new_project)
+                    project_path.write_text(proj_content)
+                    log_info(click.style(f"  Created project {project_path}", fg="green"))
+
+                # Create task under the new project
+                task_name = re.sub(r'[^a-zA-Z0-9_-]', '_', item_text.lower())
+                task_name = re.sub(r'_+', '_', task_name).strip('_')[:50]
+                task_name = click.prompt("  Task name", default=task_name)
+
+                task_filename = f"{new_project}.{task_name}"
+                filepath = notes_dir / f"{task_filename}.md"
+                if filepath.exists():
+                    click.echo(click.style(f"  Task already exists: {filepath}", fg="red"))
+                    continue
+
+                template = get_template("task")
+                task_content = render_template(template, task_name, new_project, format_title(new_project))
+                task_content = task_content.replace("## Description\n", f"## Description\n{item_text}\n")
+                filepath.write_text(task_content)
+                add_task_to_project(project_path, task_name, task_filename)
+                log_info(click.style(f"  Created {filepath} and added to {project_path}", fg="green"))
+
+                # Update local projects list
+                projects = get_projects()
+                items_to_remove.append(line_idx)
+                break
+
 
         if choice == "q":
             break

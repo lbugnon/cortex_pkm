@@ -2,11 +2,13 @@
 
 import functools
 import os
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import click
+from dateparser.search import search_dates
 
 from .config import get_vault_path, get_verbosity
 from .schema import DATE_TIME
@@ -234,6 +236,94 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
         project_path.write_text(content)
 
 
+def parse_checklist_items(content: str) -> list[tuple[str, str, str]]:
+    """Parse checklist items from markdown content.
+    
+    Extracts task names and their status from checklist items with any Cortex status symbol.
+    Uses STATUS_SYMBOLS from schema.py to recognize symbols.
+    
+    Args:
+        content: Markdown content with checklist items
+        
+    Returns:
+        List of tuples (task_name, status, task_text) extracted from checklist items
+        Example: [('design_api', 'todo', 'Design API'), ('completed_task', 'done', 'Completed task')]
+    """
+    from .schema import STATUS_SYMBOLS
+    
+    # Build reverse mapping: symbol -> status
+    symbol_to_status = {symbol: status for status, symbol in STATUS_SYMBOLS.items()}
+    
+    # Build regex pattern from STATUS_SYMBOLS to match any valid symbol
+    # Extract the character inside brackets from each symbol
+    symbol_chars = set()
+    for symbol in STATUS_SYMBOLS.values():
+        # Extract character between [ and ] (e.g., '[x]' -> 'x', '[ ]' -> ' ')
+        char = symbol[1]
+        symbol_chars.add(re.escape(char))
+    
+    # Build pattern: - [any_symbol_char] task text
+    pattern = r'^\s*-\s+\[([' + ''.join(symbol_chars) + r'])\]\s+(.+)$'
+    items = []
+    
+    for line in content.split('\n'):
+        match = re.match(pattern, line)
+        if match:
+            symbol_char = match.group(1)
+            task_text = match.group(2).strip()
+            
+            # Map symbol character back to status
+            status = None
+            for status_name, symbol in STATUS_SYMBOLS.items():
+                if symbol[1] == symbol_char:
+                    status = status_name
+                    break
+            
+            if status is None:
+                # Fallback to 'todo' if symbol not recognized
+                status = 'todo'
+            
+            # Convert task text to slug
+            task_slug = task_text.lower()
+            # Replace spaces with underscores
+            task_slug = re.sub(r'\s+', '_', task_slug)
+            # Remove characters that are invalid in filenames or used as separators (dots)
+            task_slug = re.sub(r'[/<>:"|?*\\.]+', '', task_slug)
+            # Clean up multiple consecutive underscores and trim
+            task_slug = re.sub(r'_+', '_', task_slug).strip('_')
+            
+            items.append((task_slug, status, task_text))
+    
+    return items
+
+
+def remove_checklist_items(content: str) -> str:
+    """Remove all checklist items from markdown content.
+    
+    Removes checklist items with any Cortex status symbol.
+    Uses STATUS_SYMBOLS from schema.py.
+    
+    Args:
+        content: Markdown content with checklist items
+        
+    Returns:
+        Content with checklist items removed
+    """
+    from .schema import STATUS_SYMBOLS
+    
+    # Build regex pattern from STATUS_SYMBOLS
+    symbol_chars = set()
+    for symbol in STATUS_SYMBOLS.values():
+        char = symbol[1]
+        symbol_chars.add(re.escape(char))
+    
+    pattern = r'^\s*-\s+\[([' + ''.join(symbol_chars) + r'])\]\s+.+$'
+    lines = content.split('\n')
+    filtered_lines = [line for line in lines if not re.match(pattern, line)]
+    
+    return '\n'.join(filtered_lines)
+
+
 # --- Verbosity utilities ---
 
 def log_info(message: str, min_level: int = 1) -> None:
@@ -260,4 +350,80 @@ def log_debug(message: str) -> None:
 def log_error(message: str) -> None:
     """Print error message (always shown)."""
     click.secho(message, fg="red", err=True)
+
+
+def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[str]]:
+    """Parse natural language text for due dates and tags.
+    
+    Detects:
+    - Due dates: "due <date>" or "due: <date>" where <date> can be natural language
+    - Tags: "tag <name>" or "tag: <name>" or multiple "tag <name1> <name2>"
+    
+    Args:
+        text: Input text potentially containing due dates and tags
+        
+    Returns:
+        Tuple of (cleaned_text, due_date, tags) where:
+        - cleaned_text: text with due/tag specifications removed
+        - due_date: parsed datetime object or None
+        - tags: list of tag names
+        
+    Examples:
+        >>> parse_natural_language_text("finish the pipeline due next friday")
+        ('finish the pipeline', datetime(...), [])
+        >>> parse_natural_language_text("fix bug tag urgent ml")
+        ('fix bug', None, ['urgent', 'ml'])
+        >>> parse_natural_language_text("complete task due tomorrow tag:urgent")
+        ('complete task', datetime(...), ['urgent'])
+    """
+    if not text:
+        return text, None, []
+    
+    due_date = None
+    tags = []
+    cleaned_text = text
+    
+    # Pattern to match "due <date>" or "due: <date>"
+    # Regex explanation:
+    # - \bdue:?\s+ : Match "due" or "due:" followed by whitespace (word boundary before "due")
+    # - (.+?) : Capture the date text (non-greedy)
+    # - (?=\s+tag(?:\b|:)|$) : Look ahead for "tag" keyword or end of string (don't capture)
+    due_pattern = r'\bdue:?\s+(.+?)(?=\s+tag(?:\b|:)|$)'
+    due_match = re.search(due_pattern, cleaned_text, re.IGNORECASE)
+    
+    if due_match:
+        due_text = due_match.group(1).strip()
+        # Parse the date using dateparser's search_dates which is better at finding dates
+        result = search_dates(
+            due_text,
+            settings={
+                'PREFER_DATES_FROM': 'future',
+                'RETURN_AS_TIMEZONE_AWARE': False,
+            }
+        )
+        if result:
+            # search_dates returns a list of tuples (date_string, datetime)
+            # Take the first match
+            due_date = result[0][1]
+            # Remove the entire due specification from text
+            cleaned_text = cleaned_text[:due_match.start()] + cleaned_text[due_match.end():]
+            cleaned_text = cleaned_text.strip()
+    
+    # Pattern to match "tag <tag1> <tag2> ..." or "tag: <tag1> <tag2> ..."
+    # Regex explanation:
+    # - \btag:?\s+ : Match "tag" or "tag:" followed by whitespace (word boundary before "tag")
+    # - (.+?) : Capture the tag text (non-greedy)
+    # - (?=\s+due(?:\b|:)|$) : Look ahead for "due" keyword or end of string (don't capture)
+    tag_pattern = r'\btag:?\s+(.+?)(?=\s+due(?:\b|:)|$)'
+    tag_match = re.search(tag_pattern, cleaned_text, re.IGNORECASE)
+    
+    if tag_match:
+        tag_text = tag_match.group(1).strip()
+        # Split by spaces to get individual tags
+        tags = [t.strip() for t in tag_text.split() if t.strip()]
+        # Remove the entire tag specification from text
+        cleaned_text = cleaned_text[:tag_match.start()] + cleaned_text[tag_match.end():]
+        cleaned_text = cleaned_text.strip()
+    
+    return cleaned_text, due_date, tags
 

@@ -6,3 +6,5 @@ modified: 2026-01-05 18:37
 
 Capture anything here. Process with `cor process`.
 
+## Inbox
+

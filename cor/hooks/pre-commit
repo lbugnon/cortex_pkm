@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Add repo root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from cor.maintenance import MaintenanceRunner
+from cor.sync import MaintenanceRunner
 from cor.config import get_vault_path
 
 
@@ -81,8 +81,8 @@ def main():
 
     notes_dir = get_vault_path()
 
-    # Run maintenance sync (not dry run - actually apply changes)
-    runner = MaintenanceRunner(notes_dir, dry_run=False)
+    # Run maintenance sync
+    runner = MaintenanceRunner(notes_dir)
     result = runner.sync(staged_files, renamed_files, deleted_files)
     # Check for validation errors
     if result.errors:
