@@ -414,9 +414,6 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     """
     notes_dir = get_notes_dir()
 
-    # Join text tuple into a single string early for easier processing
-    text = " ".join(text) if text else None
-
     # Validate: dots are only for hierarchy, not within names
     parts = name.split(".")
     for part in parts:
@@ -1036,7 +1033,12 @@ def expand(name: str):
     created_files = []
 
     for task_name, task_status, task_text in checklist_items:
-        subtask_filename = f"{task_stem}.{task_name}.md"
+        # Shorten to max 6 words and escape problematic filename characters for filename only
+        words = task_name.split()[:6]
+        shortened_name = '_'.join(words)
+        # Replace characters that can break filenames: . / { ( \ ) } , and others
+        safe_name = re.sub(r'[.,/{}()\\\[\]<>:;\'\"?*|]', '_', shortened_name)
+        subtask_filename = f"{task_stem}.{safe_name}.md"
         subtask_path = notes_dir / subtask_filename
 
         if subtask_path.exists():
@@ -1049,7 +1051,6 @@ def expand(name: str):
             task_name, 
             parent=task_stem,
             parent_title=format_title(task_stem.split('.')[-1]),
-            title=task_text
         )
 
         # Parse the rendered content and set the status from checklist
@@ -1061,7 +1062,7 @@ def expand(name: str):
         with open(subtask_path, 'wb') as f:
             frontmatter.dump(subtask_post, f, sort_keys=False)
         
-        created_files.append((task_name, subtask_filename, task_status))
+        created_files.append((safe_name, subtask_filename, task_status))
         log_verbose(f"  Created {subtask_filename} (status: {task_status})")
 
     # Remove checklist items from original task content
@@ -1073,11 +1074,11 @@ def expand(name: str):
         frontmatter.dump(post, f, sort_keys=False)
 
     # Add subtask links to the task file (now acting as group)
-    for task_name, subtask_filename, _ in created_files:
-        add_task_to_project(task_file, task_name, subtask_filename.replace('.md', ''))
+    for safe_name, subtask_filename, _ in created_files:
+        add_task_to_project(task_file, safe_name, subtask_filename.replace('.md', ''))
 
     log_info(click.style(f"\nSuccess! Created {len(created_files)} subtasks under {task_stem}", fg="green"))
-    for task_name, filename, status in created_files:
+    for safe_name, filename, status in created_files:
         log_info(f"  - {filename} (status: {status})")
 
 
