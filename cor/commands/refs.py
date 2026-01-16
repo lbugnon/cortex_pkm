@@ -350,3 +350,88 @@ ref.add_command(show)
 ref.add_command(edit)
 ref.add_command(delete, name="del")
 ref.add_command(search)
+
+
+@click.command(short_help="Validate bibliography metadata across all refs")
+@require_init
+def validate_refs():
+    """Validate all references in references.bib and matching ref markdown files.
+
+    Checks for missing: title, year, authors, journal, volume/issue, abstract.
+
+    Example:
+        cor ref validate
+    """
+    notes_dir = get_notes_dir()
+    entries = list_bib_entries(notes_dir)
+
+    if not entries:
+        log_info("No references found. Add one with: cor ref add <doi>")
+        return
+
+    total = len(entries)
+    problems = []
+
+    for e in entries:
+        missing = []
+        citekey = e.get("ID", "")
+
+        # Required: title, year, authors
+        if not e.get("title"):
+            missing.append("title")
+        if not e.get("year"):
+            missing.append("year")
+        authors_str = e.get("author") or ""
+        authors = [a.strip() for a in authors_str.split(" and ") if a.strip()]
+        if not authors:
+            missing.append("authors")
+
+        # Recommended: journal
+        if not e.get("journal"):
+            missing.append("journal")
+
+        # Recommended: volume or issue (number)
+        if not e.get("volume") and not e.get("number"):
+            missing.append("volume/issue")
+
+        # Abstract from markdown ref file
+        ref_path = get_ref_path(citekey, notes_dir)
+        abstract_missing = True
+        if ref_path.exists():
+            try:
+                text = ref_path.read_text()
+                lines = text.splitlines()
+                in_abs = False
+                abstract_content = ""
+                for ln in lines:
+                    if ln.strip().lower().startswith("## abstract"):
+                        in_abs = True
+                        abstract_content = ""
+                        continue
+                    if in_abs and ln.strip().startswith("## "):
+                        break
+                    if in_abs:
+                        abstract_content += ln.strip() + "\n"
+                abstract_content = abstract_content.strip()
+                if abstract_content and "abstract not available" not in abstract_content.lower():
+                    abstract_missing = False
+            except Exception:
+                pass
+        if abstract_missing:
+            missing.append("abstract")
+
+        if missing:
+            problems.append((citekey, missing))
+
+    for citekey, missing in problems:
+        log_info(click.style(f"{citekey}: missing {', '.join(missing)}", fg="red"))
+
+    # Summary
+    if problems:
+        log_info(f"\nChecked {total} refs: {len(problems)} need attention.")
+    else:
+        log_info(click.style(f"\nChecked {total} refs: all good.", fg="green"))
+
+
+# Register validate command
+ref.add_command(validate_refs, name="validate")
