@@ -140,6 +140,40 @@ def format_time_ago(ref_time: datetime) -> str:
         return f"{days}d ago"
 
 
+def format_due_date(due_date) -> str:
+    """Format due date as human-readable string.
+    
+    - Today: "today"
+    - Tomorrow: "tomorrow" 
+    - Yesterday: "yesterday"
+    - Within 7 days: "in X days" or "X days ago"
+    - Further: "on YYYY-MM-DD"
+    """
+    from datetime import date as date_type
+    
+    # Convert to date if datetime
+    if isinstance(due_date, datetime):
+        due_date = due_date.date()
+    elif not isinstance(due_date, date_type):
+        return str(due_date)
+    
+    today = date_type.today()
+    diff = (due_date - today).days
+    
+    if diff == 0:
+        return "today"
+    elif diff == 1:
+        return "tomorrow"
+    elif diff == -1:
+        return "yesterday"
+    elif 2 <= diff <= 7:
+        return f"in {diff} days"
+    elif -7 <= diff <= -2:
+        return f"{abs(diff)} days ago"
+    else:
+        return f"on {due_date.strftime('%Y-%m-%d')}"
+
+
 def format_title(name: str) -> str:
     """Format name as title: underscores become spaces, capitalize first letter.
 

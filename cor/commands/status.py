@@ -8,7 +8,7 @@ import click
 from ..completions import complete_project
 from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
-from ..utils import get_notes_dir, format_time_ago, require_init, format_title, get_parent_name
+from ..utils import get_notes_dir, format_time_ago, format_due_date, require_init, format_title, get_parent_name
 
 # Shared color mappings for all tree views
 TASK_COLORS = {
@@ -341,6 +341,15 @@ def show_tree(
                 click.echo(desc_line)
                 if capture is not None:
                     capture.append(click.unstyle(desc_line))
+
+            # Show due date in verbose mode
+            if task.due:
+                due_str = format_due_date(task.due)
+                due_color = "red" if task.is_overdue else "yellow" if task.is_due_this_week else "white"
+                due_line = f"{child_prefix}    {click.style(f'Due: {due_str}', dim=True, fg=due_color)}"
+                click.echo(due_line)
+                if capture is not None:
+                    capture.append(click.unstyle(due_line))
 
             # Show dependency details in verbose mode
             if all_notes:
@@ -1068,9 +1077,21 @@ def tree(verbose: bool, depth: int | None, project: str):
         suffix = f" (but {_format_note_label(project_note_count)})" if project_note_count else ""
         click.echo(f"  No tasks found{suffix}.")
     else:
-        # Sort function: by status order, then by name
+        # Sort function: by status order, then by due date (prioritizing tasks with due dates), then by name
         def sort_tasks(tasks):
-            return sorted(tasks, key=lambda t: (STATUS_ORDER.get(t.status, 3), t.path.stem))
+            def sort_key(t):
+                status_order = STATUS_ORDER.get(t.status, 3)
+                # For todo and active tasks, prioritize those with due dates
+                if t.status in ('todo', 'active'):
+                    # Tasks with due dates come first, sorted by due date
+                    # Tasks without due dates come after, sorted by name
+                    has_due = t.due is not None
+                    due_value = t.due if has_due else date.max
+                    return (status_order, not has_due, due_value, t.path.stem)
+                else:
+                    # For other statuses, use original sorting
+                    return (status_order, True, date.max, t.path.stem)
+            return sorted(tasks, key=sort_key)
 
         show_tree(
             project,
