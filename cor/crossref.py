@@ -332,8 +332,8 @@ def extract_doi_from_url(url: str) -> Optional[str]:
         doi = match.group(1)
         # Clean trailing punctuation
         doi = doi.rstrip(".,;")
-        # remove version suffix if present
-        doi = re.sub(r"(v\d+)$", "", doi)
+        # remove version suffix if present (only vN where N is a single digit)
+        doi = re.sub(r"(v\d)$", "", doi)
         return doi, "publisher"
     # Standard doi subpatter: /doi/10.xxxx/...
     m = re.search(r"/doi/(10\.\d+/\S+)", url)

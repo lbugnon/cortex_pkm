@@ -37,7 +37,7 @@ def _create_ref_file(
 
     # Build plain markdown content
     authors_str = ", ".join(result.authors) if result.authors else "Unknown"
-    abstract = result.abstract or "_Abstract not available._"
+    abstract = result.abstract or ""
     # load contet from assets
     content = open(Path(__file__).parent.parent / "assets" / "ref.md").read().format(title=result.title, authors=authors_str, abstract=abstract, date=datetime.now().strftime(DATE_TIME))
     ref_path.write_text(content)
