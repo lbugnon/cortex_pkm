@@ -304,23 +304,25 @@ def example_vault(ctx):
 
 
 @cli.command()
-@click.argument("key", type=click.Choice(["verbosity", "vault"]), required=False)
+@click.argument("key", type=click.Choice(["verbosity", "vault", "inbox"]), required=False)
 @click.argument("value", required=False)
 def config(key: str | None, value: str | None):
     """Manage CortexPKM configuration.
 
-    View or modify global settings for verbosity and vault location.
+    View or modify global settings for verbosity, vault location, and remote inbox.
 
     \b
     Configuration Keys:
       verbosity    Output detail level (0=silent, 1=normal, 2=verbose, 3=debug)
       vault        Path to your notes directory
+      inbox        Telegram bot token for mobile inbox
 
     \b
     Examples:
       cor config                      Show all settings
       cor config verbosity 2          Set verbose output
       cor config vault ~/my-notes     Change vault location
+      cor config inbox <bot-token>    Configure Telegram inbox
     """
     # Show all config if no key provided
     if key is None:
@@ -382,6 +384,61 @@ def config(key: str | None, value: str | None):
             set_vault_path(path)
             click.echo(f"Vault path set to: {path}")
             click.echo(f"Config saved to: {config_file()}")
+
+    elif key == "inbox":
+        from .config import get_remote_inbox, set_remote_inbox
+
+        if value is None:
+            # Show current inbox configuration
+            bot_token = get_remote_inbox()
+            env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+
+            click.echo(click.style("Remote Inbox Configuration", bold=True))
+            click.echo()
+
+            if env_token:
+                click.echo("TELEGRAM_BOT_TOKEN env: " + click.style("(configured)", fg="green"))
+
+            config_data = load_config()
+            if config_data.get("remote_inbox"):
+                status = "(active)" if not env_token else "(overridden)"
+                masked = config_data['remote_inbox'][:8] + "..." if len(config_data['remote_inbox']) > 8 else "***"
+                click.echo(f"Config file: {masked} " + click.style(status, fg="yellow" if env_token else "green"))
+
+            if bot_token:
+                click.echo()
+                click.echo(click.style("Remote inbox is configured", fg="green"))
+                click.echo("Send messages to your Telegram bot to capture them in backlog")
+            else:
+                click.echo()
+                click.echo(click.style("Remote inbox not configured", fg="yellow"))
+                click.echo("To setup: Create a bot via @BotFather, then run:")
+                click.echo("  cor config inbox <bot-token>")
+        else:
+            # Set bot token
+            set_remote_inbox(value)
+            click.echo(click.style("Remote inbox configured", fg="green"))
+            click.echo(f"Config saved to: {config_file()}")
+            click.echo()
+            click.echo("Messages sent to your Telegram bot will be pulled during 'cor sync'")
+
+
+@cli.command()
+def inbox():
+    """Test remote inbox connection.
+
+    Checks if the Telegram bot is configured and shows pending messages.
+    """
+    from .config import get_remote_inbox
+    from .commands.inbox import test_telegram_connection
+
+    bot_token = get_remote_inbox()
+    if not bot_token:
+        click.echo(click.style("Remote inbox not configured", fg="yellow"))
+        click.echo("Run: cor config inbox <bot-token>")
+        return
+
+    test_telegram_connection(bot_token)
 
 
 @cli.command()
@@ -771,6 +828,20 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
     )
     if result.returncode != 0:
         raise click.ClickException("Not in a git repository.")
+
+    # Step 0: Pull remote inbox (if configured)
+    from .config import get_remote_inbox
+    from .commands.inbox import pull_remote_inbox
+
+    bot_token = get_remote_inbox()
+    if bot_token:
+        try:
+            added = pull_remote_inbox(notes_dir, bot_token)
+            if added:
+                click.echo(click.style(f"Pulled {added} items from Telegram inbox", fg="cyan"))
+        except click.ClickException as e:
+            # Non-fatal: continue with git sync even if inbox pull fails
+            click.echo(click.style(f"Inbox pull failed: {e.message}", fg="yellow"), err=True)
 
     # Step 1: Pull (unless skipped)
     if not no_pull:

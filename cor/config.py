@@ -87,3 +87,25 @@ def set_verbosity(level: int) -> None:
 def config_file() -> Path:
     """Return the current config file path."""
     return _config_file()
+
+
+def get_remote_inbox() -> str | None:
+    """Get Telegram bot token for remote inbox.
+
+    Returns token from config file or TELEGRAM_BOT_TOKEN env var, or None if not configured.
+    """
+    # Check environment variable first
+    env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if env_token:
+        return env_token
+
+    # Fall back to config file
+    config = load_config()
+    return config.get("remote_inbox")
+
+
+def set_remote_inbox(bot_token: str) -> None:
+    """Save Telegram bot token to config file."""
+    config = load_config()
+    config["remote_inbox"] = bot_token
+    save_config(config)

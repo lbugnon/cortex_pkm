@@ -148,7 +148,9 @@ tags: [coding, urgent]
 | `cor hooks install` | Install pre-commit hook and shell completion |
 | `cor hooks uninstall` | Remove git hooks |
 | `cor config vault <path>` | Set global vault path |
+| `cor config inbox <token>` | Configure Telegram bot for mobile inbox |
 | `cor config` | Show current configuration |
+| `cor inbox` | Test Telegram connection and show pending messages |
 | `cor maintenance sync` | Manually run archive/status sync |
 
 ### Natural Language Dates and Tags
@@ -253,6 +255,7 @@ cor new task my-project.quick-idea
 ```yaml
 vault: /home/user/notes        # Vault path (required)
 verbosity: 1                   # 0=silent, 1=normal, 2=verbose, 3=debug
+remote_inbox: 123456:ABC...    # Telegram bot token (optional)
 ```
 
 ### Configuration Commands
@@ -261,7 +264,40 @@ verbosity: 1                   # 0=silent, 1=normal, 2=verbose, 3=debug
 cor config                # Display current config
 cor config vault <path>   # Set vault path
 cor config verbosity <0-3> # Set verbosity level
+cor config inbox <token>  # Configure Telegram inbox
 ```
+
+### Mobile Inbox via Telegram
+
+Capture notes from your phone by sending messages to a Telegram bot. Messages are automatically pulled into your backlog during `cor sync`.
+
+#### Setup (2 minutes)
+
+1. **Create a Telegram bot**:
+   - Open Telegram and message [@BotFather](https://t.me/BotFather)
+   - Send `/newbot` and follow the prompts to create your bot
+   - Copy the bot token (looks like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
+
+2. **Configure Cortex**:
+   ```bash
+   cor config inbox <your-bot-token>
+   ```
+
+3. **Initialize the bot**:
+   - Find your bot in Telegram (search for the username you created)
+   - Send `/start` to your bot
+   - Send a test message
+
+4. **Test the connection**:
+   ```bash
+   cor inbox  # Shows pending messages
+   ```
+
+5. **Sync to pull messages**:
+   ```bash
+   cor sync   # Pulls messages into backlog and clears them from Telegram
+   ```
+
 
 ### File Hierarchy & Linking
 
