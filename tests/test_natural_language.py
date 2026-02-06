@@ -144,3 +144,141 @@ class TestParseNaturalLanguageText:
         assert cleaned == "task"
         assert due_date is not None
         assert tags == ["urgent"]
+
+
+class TestParseNaturalLanguageShortHourFormat:
+    """Test short hour format 'in Xh' that search_dates doesn't handle."""
+
+    def test_parse_due_in_5h(self):
+        """Test parsing 'due in 5h' (short form)."""
+        text = "reminder due in 5h"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "reminder"
+        assert due_date is not None
+        # Should be approximately 5 hours from now
+        expected = datetime.now() + timedelta(hours=5)
+        diff = abs((due_date - expected).total_seconds())
+        assert diff < 60  # Within 1 minute
+
+    def test_parse_due_in_2h(self):
+        """Test parsing 'due in 2h'."""
+        text = "quick task due in 2h"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "quick task"
+        assert due_date is not None
+        expected = datetime.now() + timedelta(hours=2)
+        diff = abs((due_date - expected).total_seconds())
+        assert diff < 60
+
+    def test_parse_due_in_5h_with_tags(self):
+        """Test parsing 'due in 5h' with tags."""
+        text = "deploy due in 5h tag urgent"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "deploy"
+        assert due_date is not None
+        assert "urgent" in tags
+        expected = datetime.now() + timedelta(hours=5)
+        diff = abs((due_date - expected).total_seconds())
+        assert diff < 60
+
+
+class TestParseNaturalLanguageTimeKeywords:
+    """Test time keywords (morning, afternoon, etc.) in natural language date parsing."""
+
+    def test_parse_due_tomorrow_morning(self):
+        """Test parsing 'due tomorrow morning'."""
+        text = "review code due tomorrow morning"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "review code"
+        assert due_date is not None
+        assert due_date.hour == 9
+        assert due_date.minute == 0
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        assert due_date.date() == tomorrow
+
+    def test_parse_due_tomorrow_afternoon(self):
+        """Test parsing 'due tomorrow afternoon'."""
+        text = "submit report due tomorrow afternoon"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "submit report"
+        assert due_date is not None
+        assert due_date.hour == 14
+        assert due_date.minute == 0
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        assert due_date.date() == tomorrow
+
+    def test_parse_due_tomorrow_evening(self):
+        """Test parsing 'due tomorrow evening'."""
+        text = "meeting due tomorrow evening"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "meeting"
+        assert due_date is not None
+        assert due_date.hour == 18
+        assert due_date.minute == 0
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        assert due_date.date() == tomorrow
+
+    def test_parse_due_noon(self):
+        """Test parsing 'due tomorrow noon'."""
+        text = "lunch meeting due tomorrow noon"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "lunch meeting"
+        assert due_date is not None
+        assert due_date.hour == 12
+        assert due_date.minute == 0
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        assert due_date.date() == tomorrow
+
+    def test_parse_due_night(self):
+        """Test parsing 'due tomorrow night'."""
+        text = "security check due tomorrow night"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "security check"
+        assert due_date is not None
+        assert due_date.hour == 21
+        assert due_date.minute == 0
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        assert due_date.date() == tomorrow
+
+    def test_parse_due_with_time_and_tags(self):
+        """Test parsing due date with morning keyword and tags."""
+        text = "deploy app due tomorrow morning tag urgent production"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "deploy app"
+        assert due_date is not None
+        assert due_date.hour == 9
+        assert due_date.minute == 0
+        assert "urgent" in tags
+        assert "production" in tags
+
+    def test_parse_due_next_friday_morning(self):
+        """Test parsing 'due next friday morning'."""
+        text = "demo due next friday morning"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "demo"
+        assert due_date is not None
+        assert due_date.hour == 9
+        assert due_date.minute == 0
+        # Should be a Friday
+        assert due_date.weekday() == 4  # Friday is 4 (Monday=0)
+
+    def test_parse_due_with_explicit_time_overrides_keyword(self):
+        """Test that explicit time (8pm) takes precedence over keywords."""
+        text = "meeting due tomorrow 8pm"
+        cleaned, due_date, tags = parse_natural_language_text(text)
+        
+        assert cleaned == "meeting"
+        assert due_date is not None
+        # dateparser handles 8pm correctly
+        assert due_date.hour == 20
+        assert due_date.minute == 0

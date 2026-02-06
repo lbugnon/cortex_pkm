@@ -4,11 +4,12 @@ import functools
 import os
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import click
 from dateparser.search import search_dates
+from dateparser import parse as parse_date
 
 from .config import get_vault_path, get_verbosity
 from .schema import DATE_TIME
@@ -386,11 +387,40 @@ def log_error(message: str) -> None:
     click.secho(message, fg="red", err=True)
 
 
+# Time keywords mapping for natural language date parsing
+_TIME_KEYWORDS = {
+    'morning': (9, 0),
+    'noon': (12, 0),
+    'afternoon': (14, 0),
+    'evening': (18, 0),
+    'night': (21, 0),
+}
+
+
+def _apply_time_keyword(date_text: str, parsed_date: datetime) -> datetime:
+    """Apply time from keywords (morning, afternoon, etc.) to a parsed date.
+    
+    Args:
+        date_text: Original date text that was parsed
+        parsed_date: The datetime returned by dateparser
+        
+    Returns:
+        Datetime with time adjusted if a keyword was found, otherwise original
+    """
+    date_lower = date_text.lower()
+    for keyword, (hour, minute) in _TIME_KEYWORDS.items():
+        # Use word boundary to avoid matching "noon" inside "afternoon"
+        if re.search(r'\b' + keyword + r'\b', date_lower):
+            return parsed_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return parsed_date
+
+
 def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[str]]:
     """Parse natural language text for due dates and tags.
     
     Detects:
     - Due dates: "due <date>" or "due: <date>" where <date> can be natural language
+      Supports time precision: "due tomorrow 8pm", "due tomorrow morning", "due in 48h"
     - Tags: "tag <name>" or "tag: <name>" or multiple "tag <name1> <name2>"
     
     Args:
@@ -409,6 +439,10 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
         ('fix bug', None, ['urgent', 'ml'])
         >>> parse_natural_language_text("complete task due tomorrow tag:urgent")
         ('complete task', datetime(...), ['urgent'])
+        >>> parse_natural_language_text("review due tomorrow 8pm")
+        ('review', datetime(...), [])  # Tomorrow at 20:00
+        >>> parse_natural_language_text("submit due tomorrow morning")
+        ('submit', datetime(...), [])  # Tomorrow at 09:00
     """
     if not text:
         return text, None, []
@@ -439,6 +473,19 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
             # search_dates returns a list of tuples (date_string, datetime)
             # Take the first match
             due_date = result[0][1]
+        else:
+            # Fallback to parse for patterns search_dates misses (e.g., "in 5h")
+            due_date = parse_date(
+                due_text,
+                settings={
+                    'PREFER_DATES_FROM': 'future',
+                    'RETURN_AS_TIMEZONE_AWARE': False,
+                }
+            )
+        
+        if due_date:
+            # Apply time keywords (morning, afternoon, etc.) if present
+            due_date = _apply_time_keyword(due_text, due_date)
             # Remove the entire due specification from text
             cleaned_text = cleaned_text[:due_match.start()] + cleaned_text[due_match.end():]
             cleaned_text = cleaned_text.strip()
@@ -460,4 +507,3 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
         cleaned_text = cleaned_text.strip()
     
     return cleaned_text, due_date, tags
-
