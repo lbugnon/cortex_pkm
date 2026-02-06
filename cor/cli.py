@@ -625,8 +625,8 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
         text = " ".join(text)
     
     if text and note_type in ("task", "note"):
-        # Parse natural language dates and tags
-        cleaned_text, due_date, parsed_tags = parse_natural_language_text(text)
+        # Parse natural language dates, tags, and status
+        cleaned_text, due_date, parsed_tags, parsed_status = parse_natural_language_text(text)
         
         # Update the description with cleaned text
         if cleaned_text:
@@ -655,6 +655,14 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
             with open(filepath, 'wb') as f:
                 frontmatter.dump(post, f, sort_keys=False)
             click.echo(f"Added tags: {', '.join(parsed_tags)}")
+        
+        # Set status if parsed (only for tasks)
+        if parsed_status and note_type == "task":
+            post = frontmatter.load(filepath)
+            post['status'] = parsed_status
+            with open(filepath, 'wb') as f:
+                frontmatter.dump(post, f, sort_keys=False)
+            click.echo(f"Set status: {parsed_status}")
     elif not no_edit:
        open_in_editor(filepath)
 
