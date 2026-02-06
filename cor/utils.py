@@ -222,14 +222,39 @@ def open_in_editor(filepath: Path):
     """Open file in appropriate editor based on environment.
 
     - In VSCode terminal: opens with `code` command
-    - In regular terminal: opens with $EDITOR
+    - In regular terminal: opens with $EDITOR, or tries common editors
     """
     if is_vscode_terminal():
         # Use VSCode's code command
         subprocess.call(["code", str(filepath)])
-    else:
-        editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "nvim"
-        subprocess.call([editor, str(filepath)])
+        return
+
+    # Get editor from environment or try common editors
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+    
+    if editor:
+        # User has specified an editor, try to use it
+        try:
+            subprocess.call([editor, str(filepath)])
+            return
+        except FileNotFoundError:
+            click.echo(click.style(f"Warning: $EDITOR is set to '{editor}' but it's not found.", fg="yellow"))
+    
+    # Try common editors in order of preference
+    for fallback in ["nvim", "vim", "nano", "vi"]:
+        try:
+            subprocess.call([fallback, str(filepath)])
+            return
+        except FileNotFoundError:
+            continue
+    
+    # No editor found
+    click.echo(click.style("No editor found!", fg="red", bold=True))
+    click.echo("Tried: nvim, vim, nano, vi")
+    click.echo(f"\nTo fix this, either:")
+    click.echo("  1. Install an editor (e.g., apt install nano)")
+    click.echo("  2. Set $EDITOR environment variable: export EDITOR=/path/to/your/editor")
+    click.echo(f"\nFile location: {filepath}")
 
 
 def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
