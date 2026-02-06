@@ -217,7 +217,16 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
     # Use consolidated completion logic
     from .search import fuzzy_match
 
-    return complete_files_with_fuzzy(
+
+    # If the initial string is a prefix of any project name, return only those project(s) as completions
+    projects = get_projects()
+    if search_stem:
+        matching_projects = [p for p in projects if p.startswith(search_stem)]
+        if matching_projects:
+            from click.shell_completion import CompletionItem
+            return [CompletionItem(p, help=f"Project {p}") for p in matching_projects]
+
+    completions = complete_files_with_fuzzy(
         search_stem=search_stem,
         file_stems=file_stems,
         archived_stems=archived_stems,
@@ -225,6 +234,8 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
         is_archive_path=is_archive_path,
         include_archived=include_archived
     )
+    # Sort completions by length of the completion value (shorter first)
+    return sorted(completions, key=lambda c: len(getattr(c, 'value', str(c))))
 
 
 def complete_group_project(ctx, param, incomplete: str) -> list:
