@@ -36,7 +36,8 @@ def _create_ref_file(
     ref_path = ref_dir / f"{citekey}.md"
 
     # Build plain markdown content
-    authors_str = ", ".join(result.authors) if result.authors else "Unknown"
+    # Use semicolon to separate authors since they are in "Last, First" format
+    authors_str = "; ".join(result.authors) if result.authors else "Unknown"
     abstract = result.abstract or ""
     # load contet from assets
     content = open(Path(__file__).parent.parent / "assets" / "ref.md").read().format(title=result.title, authors=authors_str, abstract=abstract, date=datetime.now().strftime(DATE_TIME))
