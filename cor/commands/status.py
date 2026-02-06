@@ -5,7 +5,7 @@ import re
 
 import click
 
-from ..completions import complete_project
+from ..completions import complete_project, complete_existing_name
 from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
 from ..utils import get_notes_dir, format_time_ago, format_due_date, require_init, format_title, get_parent_name
@@ -1008,27 +1008,38 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
         _update_root_section(notes_dir, "Weekly", "\n".join(capture_lines))
 
 
-@click.command(short_help="Show a project's task tree")
+@click.command(short_help="Show a project's or group's task tree")
 @click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
 @click.option("--depth", "-d", type=int, default=None, help="Maximum depth to display (default: unlimited)")
-@click.argument("project", shell_complete=complete_project)
+@click.argument("focus", shell_complete=complete_existing_name)
 @require_init
-def tree(verbose: bool, depth: int | None, project: str):
-    """Show task tree for a project.
+def tree(verbose: bool, depth: int | None, focus: str):
+    """Show task tree for a project or task group.
 
     Displays tasks in a tree view with [x] or [ ] indicating status.
+    Can focus on a project or a specific task group for detailed views.
 
     \b
-    Example:
-      cor tree myproject
-      cor tree myproject -v         # Show descriptions
-      cor tree myproject --depth 2  # Limit to 2 levels
+    Examples:
+      cor tree myproject                   # Show full project tree
+      cor tree myproject.group             # Focus on a specific group
+      cor tree myproject -v                # Show descriptions
+      cor tree myproject --depth 2         # Limit to 2 levels
     """
     notes_dir = get_notes_dir()
 
-    project_path = notes_dir / f"{project}.md"
-    if not project_path.exists():
-        raise click.ClickException(f"Project not found: {project}")
+    # Try to find the focus file (project, task group, or task)
+    focus_path = notes_dir / f"{focus}.md"
+    archive_path = notes_dir / "archive" / f"{focus}.md"
+    
+    is_archived = False
+    if focus_path.exists():
+        pass  # Found in main notes dir
+    elif archive_path.exists():
+        focus_path = archive_path
+        is_archived = True
+    else:
+        raise click.ClickException(f"Not found: {focus}")
 
     # Include both active notes and archived ones
     notes = find_notes(notes_dir)
@@ -1038,44 +1049,71 @@ def tree(verbose: bool, depth: int | None, project: str):
 
     note_counts = _build_note_counts(notes)
 
-    # Find the project
-    project_note = None
+    # Find the focus note
+    focus_note = None
     for note in notes:
-        if note.path.stem == project:
-            project_note = note
+        if note.path.stem == focus:
+            focus_note = note
             break
 
-    if not project_note:
-        raise click.ClickException(f"Could not parse project: {project}")
+    if not focus_note:
+        raise click.ClickException(f"Could not parse: {focus}")
 
-    # Build parent -> tasks mapping
+    # Determine if we're focusing on a project or a task/group
+    is_project = focus_note.note_type == "project"
+    
+    # Get the base project name (first part of the path)
+    base_project = focus.split(".")[0]
+
+    # Build parent -> tasks mapping (include all descendants of the focus node)
     tasks_by_parent = {}
     for note in notes:
         if note.note_type == "task":
             parts = note.path.stem.split(".")
-            if len(parts) >= 2 and parts[0] == project:
-                parent = ".".join(parts[:-1])
-                tasks_by_parent.setdefault(parent, []).append(note)
+            if len(parts) >= 2:
+                # For project focus: include all tasks under this project
+                # For group focus: include tasks that are descendants of this focus path
+                if is_project:
+                    if parts[0] == focus:
+                        parent = ".".join(parts[:-1])
+                        tasks_by_parent.setdefault(parent, []).append(note)
+                else:
+                    # Group focus: include tasks where the focus is a prefix
+                    note_prefix = ".".join(parts[:-1])
+                    if note.path.stem.startswith(focus + ".") or note.path.stem == focus:
+                        parent = ".".join(parts[:-1])
+                        tasks_by_parent.setdefault(parent, []).append(note)
 
-    # Print project header
-    color = PROJECT_COLORS.get(project_note.status)
-    click.echo(click.style(f"\n{project_note.title}", fg=color, bold=True))
-    status_line = f"({project_note.status or 'no status'})"
-    project_note_count = note_counts.get(project, 0)
-    if project_note_count:
-        status_line += f" (and {_format_note_label(project_note_count)})"
-    click.echo(click.style(status_line, dim=True))
+    # Print header
+    if is_project:
+        color = PROJECT_COLORS.get(focus_note.status)
+        click.echo(click.style(f"\n{focus_note.title}", fg=color, bold=True))
+        status_line = f"({focus_note.status or 'no status'})"
+        note_count = note_counts.get(focus, 0)
+        if note_count:
+            status_line += f" (and {_format_note_label(note_count)})"
+        click.echo(click.style(status_line, dim=True))
+    else:
+        # Task or group header
+        color = TASK_COLORS.get(focus_note.status, "white")
+        symbol = STATUS_SYMBOLS.get(focus_note.status, "[ ]")
+        click.echo(click.style(f"\n{symbol} {focus_note.title}", fg=color, bold=True))
+        status_line = f"({focus_note.status or 'no status'})"
+        note_count = note_counts.get(focus, 0)
+        if note_count:
+            status_line += f" (and {_format_note_label(note_count)})"
+        click.echo(click.style(status_line, dim=True))
 
-    # Show project dependencies if any
-    if project_note.requires:
-        dep_details = _format_dependency_indicator(project_note, notes, verbose=True)
+    # Show dependencies if any
+    if focus_note.requires:
+        dep_details = _format_dependency_indicator(focus_note, notes, verbose=True)
         if dep_details:
             for detail_line in dep_details.split("\n"):
                 click.echo(click.style(f"  {detail_line}", dim=True, fg='yellow'))
 
-    if project not in tasks_by_parent:
-        suffix = f" (but {_format_note_label(project_note_count)})" if project_note_count else ""
-        click.echo(f"  No tasks found{suffix}.")
+    if focus not in tasks_by_parent:
+        suffix = f" (but {_format_note_label(note_count)})" if note_count else ""
+        click.echo(f"  No subtasks found{suffix}.")
     else:
         # Sort function: by status order, then by due date (prioritizing tasks with due dates), then by name
         def sort_tasks(tasks):
@@ -1094,7 +1132,7 @@ def tree(verbose: bool, depth: int | None, project: str):
             return sorted(tasks, key=sort_key)
 
         show_tree(
-            project,
+            focus,
             tasks_by_parent,
             sort_fn=sort_tasks,
             show_separators=True,

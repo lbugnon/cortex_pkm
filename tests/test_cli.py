@@ -561,6 +561,42 @@ class TestTree:
         assert result.exit_code == 0
         assert "task1" in result.output.lower(), "Should show deeply nested task with depth=2"
 
+    def test_tree_focus_on_group(self, runner, initialized_vault, monkeypatch):
+        """cor tree project.group should focus on a specific task group."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project with groups
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.task1", "task work", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.task2", "task work", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.othertask", "other task", "--no-edit"])
+
+        # Focus on the group - should show only group tasks
+        result = runner.invoke(cli, ["tree", "myproj.group"])
+        assert result.exit_code == 0, f"Tree group focus failed: {result.output}"
+        
+        output = result.output.lower()
+        assert "task1" in output, "Should show task1 in group"
+        assert "task2" in output, "Should show task2 in group"
+        assert "othertask" not in output, "Should not show tasks outside the group"
+
+    def test_tree_focus_on_subgroup(self, runner, initialized_vault, monkeypatch):
+        """cor tree project.group.subgroup should focus on nested groups."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create nested structure
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.sub.task1", "deep task", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.task2", "group task", "--no-edit"])
+
+        # Focus on the subgroup
+        result = runner.invoke(cli, ["tree", "myproj.group.sub"])
+        assert result.exit_code == 0, f"Tree subgroup focus failed: {result.output}"
+        
+        output = result.output.lower()
+        assert "task1" in output, "Should show task1 in subgroup"
+        assert "task2" not in output, "Should not show tasks in parent group"
+
 
 class TestRename:
     """Test cor rename command."""
