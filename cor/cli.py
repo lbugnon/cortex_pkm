@@ -118,6 +118,17 @@ def init(ctx, yes: bool):
 
     log_info("Cortex vault initialized.")
 
+    # Create default .gitignore if not exists
+    gitignore_path = vault_path / ".gitignore"
+    if not gitignore_path.exists():
+        gitignore_content = """# CortexPKM - Ignore temporal files
+# Files starting with . or # are considered temporal/backup files
+.*
+#*
+"""
+        gitignore_path.write_text(gitignore_content)
+        log_verbose(f"Created {gitignore_path}")
+
     # Check if git repository exists, create if it doesn't
     result = subprocess.run(
         ["git", "rev-parse", "--git-dir"],
@@ -1117,7 +1128,7 @@ def expand(name: str):
     created_files = []
 
     for task_name, task_status, task_text in checklist_items:
-        # Shorten to max 6 words and escape problematic filename characters for filename only
+        # Shorten to max 6 words for filename and title
         words = task_name.split()[:6]
         shortened_name = '_'.join(words)
         # Replace characters that can break filenames: / { ( \ ) } , and others
@@ -1130,18 +1141,23 @@ def expand(name: str):
             click.echo(f"Warning: {subtask_filename} already exists, skipping")
             continue
 
-        # Render subtask content with task as parent, using original task text as title
+        # Use shortened name (max 6 words) as the task title
+        short_title = ' '.join(words)
+
+        # Render subtask content with task as parent, using shortened title
+        # and passing the full task text as message to include in body
         subtask_content = render_template(
-            template, 
-            task_name, 
+            template,
+            safe_name,
             parent=task_stem,
             parent_title=format_title(task_stem.split('.')[-1]),
+            message=task_text,
         )
 
         # Parse the rendered content and set the status from checklist
         subtask_post = frontmatter.loads(subtask_content)
         subtask_post['status'] = task_status
-        subtask_post['title'] = task_text
+        subtask_post['title'] = short_title
         
         # Write subtask with correct status
         with open(subtask_path, 'wb') as f:
