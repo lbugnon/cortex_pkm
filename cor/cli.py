@@ -520,12 +520,11 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
             filename = f"{task_name}.md"
 
     filepath = notes_dir / filename
-    filepath_archive = notes_dir / "archive" / filename
 
     if filepath.exists():
         raise click.ClickException(f"File already exists: {filepath}")
-    if filepath_archive.exists():
-        raise click.ClickException(f"File already exists in archive: {filepath_archive}")
+    # Note: We don't check archive by default (consistent with edit/mark/move)
+    # Archived files don't block creating new files with the same name
 
     # Read and render template
     template = get_template(note_type)

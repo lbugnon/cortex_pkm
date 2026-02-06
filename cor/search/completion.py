@@ -122,6 +122,9 @@ def complete_files_with_fuzzy(
 ) -> list[CompletionItem]:
     """Complete file names with prefix + fuzzy fallback.
 
+    By default, archived files are NOT included in completions.
+    Use include_archived=True or type "archive/" prefix to include them.
+
     Handles the common pattern for completing note file names:
     - Try prefix matches in active and/or archived files
     - Fall back to fuzzy matching if no prefix matches
