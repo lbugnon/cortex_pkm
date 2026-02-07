@@ -9,6 +9,7 @@ from ..completions import complete_project, complete_existing_name
 from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
 from ..utils import get_notes_dir, format_time_ago, format_due_date, require_init, format_title, get_parent_name
+from ..config import get_focused_project
 
 # Shared color mappings for all tree views
 TASK_COLORS = {
@@ -488,9 +489,16 @@ def daily(limit: int, show_all: bool, verbose: bool, tag: str | None):
     - The task's parent project name equals the tag, or
     - The task has the tag in its metadata, or
     - Its parent project has the tag (project tags propagate to children).
+    
+    If a project is focused (via `cor focus`), automatically filters to that project.
     """
     notes_dir = get_notes_dir()
     root_lines: list[str] = []
+
+    # Apply focus if set and no explicit tag provided
+    focused = get_focused_project()
+    if tag is None and focused:
+        tag = focused
 
     notes = find_notes(notes_dir)
     now = datetime.now()
@@ -508,6 +516,10 @@ def daily(limit: int, show_all: bool, verbose: bool, tag: str | None):
     project_tags: dict[str, set[str]] = {
         n.path.stem: set(n.tags or []) for n in notes if n.note_type == "project"
     }
+
+    # Show focus indicator if filtering by focused project
+    if focused and tag == focused:
+        click.echo(click.style(f"[Focusing on: {focused}]\n", fg="cyan", bold=True))
 
     # Pre-filter tasks once (respects tag propagation)
     tasks = [n for n in notes if n.note_type == "task" and _matches_tag(n, tag, project_tags)]
@@ -762,8 +774,15 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
     - Its parent project has the tag (project tags propagate to children).
 
     Use -v/--verbose to show task descriptions.
+    
+    If a project is focused (via `cor focus`), automatically filters to that project.
     """
     notes_dir = get_notes_dir()
+
+    # Apply focus if set and no explicit tag provided
+    focused = get_focused_project()
+    if tag is None and focused:
+        tag = focused
 
     # Calculate date range
     now = datetime.now()
@@ -867,6 +886,10 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
     def emit(line: str = ""):
         click.echo(line)
         capture_lines.append(click.unstyle(line))
+
+    # Show focus indicator if filtering by focused project
+    if focused and tag == focused:
+        emit(click.style(f"[Focusing on: {focused}]", fg="cyan", bold=True))
 
     emit(click.style(f"\n═══ {header} ═══", bold=True))
 

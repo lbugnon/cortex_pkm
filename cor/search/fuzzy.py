@@ -42,6 +42,7 @@ def fuzzy_match(
     candidates: list[tuple[str, bool]],
     limit: int = 10,
     score_cutoff: int = 50,
+    focused_project: str | None = None,
 ) -> list[tuple[str, bool, int]]:
     """Find fuzzy matches for query against candidates.
 
@@ -50,6 +51,7 @@ def fuzzy_match(
         candidates: List of (stem, is_archived) tuples
         limit: Maximum results to return
         score_cutoff: Minimum score (0-100) to include
+        focused_project: If provided, boost scores for matches in this project
 
     Returns:
         List of (stem, is_archived, score) sorted by score descending, then by length ascending
@@ -73,8 +75,21 @@ def fuzzy_match(
     stem_to_archived = {c[0]: c[1] for c in candidates}
     matches = [(match[0], stem_to_archived[match[0]], int(match[1])) for match in results]
     
+    # Boost scores for focused project matches
+    if focused_project:
+        boosted = []
+        for stem, is_archived, score in matches:
+            # Check if this file belongs to the focused project
+            # Projects are the first part before any dot
+            parts = stem.split(".")
+            if parts[0] == focused_project:
+                # Boost score by 20 points, cap at 100
+                score = min(100, score + 20)
+            boosted.append((stem, is_archived, score))
+        matches = boosted
+    
     # Sort by score (descending), then by length (ascending) for ties
-    # This ensures shorter matches are preferred when scores are equal
+    # Focused project matches will now appear first due to boosted scores
     matches.sort(key=lambda x: (-x[2], len(x[0])))
     
     return matches
@@ -124,6 +139,7 @@ def resolve_file_fuzzy(
     name: str,
     include_archived: bool = False,
     auto_select_threshold: int = 95,
+    focused_project: str | None = None,
 ) -> Optional[tuple[str, bool]]:
     """Resolve a file name using fuzzy matching with interactive picker.
 
@@ -131,6 +147,7 @@ def resolve_file_fuzzy(
         name: User-provided file name (possibly partial/fuzzy)
         include_archived: Whether to search archived files
         auto_select_threshold: Score above which to auto-select single match
+        focused_project: If provided, prioritize matches in this project
 
     Returns:
         Tuple of (stem, is_archived) or None if cancelled/no match
@@ -152,7 +169,7 @@ def resolve_file_fuzzy(
 
     # 2. Get candidates and run fuzzy search
     candidates = get_all_file_stems(include_archived)
-    matches = fuzzy_match(name, candidates)
+    matches = fuzzy_match(name, candidates, focused_project=focused_project)
 
     if not matches:
         raise click.ClickException(f"No files found matching '{name}'")
@@ -221,6 +238,7 @@ def resolve_task_fuzzy(
     name: str,
     include_archived: bool = False,
     auto_select_threshold: int = 95,
+    focused_project: str | None = None,
 ) -> Optional[tuple[str, bool]]:
     """Resolve a task name using fuzzy matching with interactive picker.
 
@@ -230,6 +248,7 @@ def resolve_task_fuzzy(
         name: User-provided task name (possibly partial/fuzzy)
         include_archived: Whether to search archived tasks
         auto_select_threshold: Score above which to auto-select single match
+        focused_project: If provided, prioritize matches in this project
 
     Returns:
         Tuple of (stem, is_archived) or None if cancelled/no match
@@ -257,7 +276,7 @@ def resolve_task_fuzzy(
 
     # 2. Get task candidates and run fuzzy search
     candidates = get_task_file_stems(include_archived)
-    matches = fuzzy_match(name, candidates)
+    matches = fuzzy_match(name, candidates, focused_project=focused_project)
 
     if not matches:
         raise click.ClickException(f"No tasks found matching '{name}'")

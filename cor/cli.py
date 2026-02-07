@@ -15,8 +15,8 @@ from . import __version__
 from .commands import daily, projects, weekly, tree, status, rename, group, process, log
 from .commands.dependencies import depend
 from .commands.refs import ref
-from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
-from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity
+from .completions import complete_name, complete_task_name, complete_task_status, complete_existing_name, complete_project
+from .config import set_vault_path, load_config, config_file, set_verbosity, get_verbosity, get_focused_project, set_focused_project, clear_focused_project
 from .sync import MaintenanceRunner
 from .core.notes import parse_metadata
 from .schema import STATUS_SYMBOLS, VALID_TASK_STATUS, DATE_TIME
@@ -435,6 +435,64 @@ def config(key: str | None, value: str | None):
 
 
 @cli.command()
+@click.argument("project", required=False, shell_complete=complete_project)
+@require_init
+def focus(project: str | None):
+    """Set or show the focused project.
+
+    When a project is focused, 'cor new', 'cor edit', and other commands
+    will default to that project. This simplifies working on a single
+    project without typing the full name each time.
+
+    \b
+    Examples:
+      cor focus              # Show current focus
+      cor focus myproject    # Focus on myproject
+      cor focus off          # Clear focus
+    """
+    notes_dir = get_notes_dir()
+    
+    # Show current focus if no argument provided
+    if project is None:
+        focused = get_focused_project()
+        if focused:
+            click.echo(click.style(f"Focusing on: {focused}", fg="cyan", bold=True))
+            click.echo(f"Run 'cor focus off' to clear")
+        else:
+            click.echo("No project focused. Run 'cor focus <project>' to set one.")
+        return
+    
+    # Clear focus
+    if project.lower() == "off":
+        clear_focused_project()
+        click.echo(click.style("Focus cleared.", fg="green"))
+        return
+    
+    # Validate project exists
+    from .search import resolve_file_fuzzy
+    
+    # Try to find the project (projects have no dots in name)
+    project_path = notes_dir / f"{project}.md"
+    if not project_path.exists():
+        # Try fuzzy matching
+        result = resolve_file_fuzzy(project, include_archived=False)
+        if result is None:
+            raise click.ClickException(f"Project not found: {project}")
+        stem, _ = result
+        # Check it's actually a project (no dots)
+        if "." in stem:
+            raise click.ClickException(
+                f"'{stem}' is not a project. Can only focus on top-level projects."
+            )
+        project = stem
+    
+    # Set focus
+    set_focused_project(project)
+    click.echo(click.style(f"Focusing on: {project}", fg="green", bold=True))
+    click.echo("Commands like 'cor new', 'cor edit' will default to this project.")
+
+
+@cli.command()
 def inbox():
     """Test remote inbox connection.
 
@@ -502,6 +560,15 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     # Parse dot notation for task/note: "project.taskname" or "project.group.taskname" or "project.group.smaller_group.task"
     task_name = name
     parent_hierarchy, project = None, None
+    
+    # Apply focus if set and no project specified
+    if note_type in ("task", "note") and "." not in name:
+        focused = get_focused_project()
+        if focused:
+            # Prepend focused project to the name
+            name = f"{focused}.{name}"
+            parts = name.split(".")
+    
     if note_type in ("task", "note") and "." in name:
         # Reuse parts from validation above
         if len(parts) == 2:
@@ -700,7 +767,9 @@ def edit(archived: bool, name: str):
         name = name[8:]
         archived = True
 
-    result = resolve_file_fuzzy(name, include_archived=archived)
+    # Get focused project for prioritization
+    focused = get_focused_project()
+    result = resolve_file_fuzzy(name, include_archived=archived, focused_project=focused)
 
     if result is None:
         return  # User cancelled
@@ -735,7 +804,9 @@ def tag(archived: bool, delete_tags: bool, name: str, tags: tuple[str, ...]):
         name = name[8:]
         archived = True
 
-    result = resolve_file_fuzzy(name, include_archived=archived)
+    # Get focused project for prioritization
+    focused = get_focused_project()
+    result = resolve_file_fuzzy(name, include_archived=archived, focused_project=focused)
     if result is None:
         return
 
@@ -805,7 +876,9 @@ def delete(archived: bool, name: str):
         name = name[8:]
         archived = True
 
-    result = resolve_file_fuzzy(name, include_archived=archived)
+    # Get focused project for prioritization
+    focused = get_focused_project()
+    result = resolve_file_fuzzy(name, include_archived=archived, focused_project=focused)
 
     if result is None:
         return  # User cancelled
@@ -973,8 +1046,9 @@ def mark(archived: bool, name: str, status: str, text: str | None):
         name = name[8:]
         archived = True
 
-    # Use task-specific fuzzy matching
-    result = resolve_task_fuzzy(name, include_archived=archived)
+    # Use task-specific fuzzy matching with focus prioritization
+    focused = get_focused_project()
+    result = resolve_task_fuzzy(name, include_archived=archived, focused_project=focused)
 
     if result is None:
         return  # User cancelled
@@ -1088,8 +1162,9 @@ def expand(name: str):
     if name.endswith('.md'):
         name = name[:-3]
 
-    # Use fuzzy matching to resolve task name
-    result = resolve_file_fuzzy(name, include_archived=False)
+    # Use fuzzy matching to resolve task name with focus prioritization
+    focused = get_focused_project()
+    result = resolve_file_fuzzy(name, include_archived=False, focused_project=focused)
 
     if result is None:
         return  # User cancelled

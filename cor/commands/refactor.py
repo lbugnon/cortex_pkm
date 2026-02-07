@@ -17,6 +17,7 @@ from ..utils import (
     log_info,
     log_verbose,
 )
+from ..config import get_focused_project
 
 
 @click.command(short_help="Rename projects/tasks; supports parent shortcuts")
@@ -51,8 +52,9 @@ def rename(archived: bool, old_name: str, new_name: str):
         old_name = old_name[8:]
         archived = True
 
-    # Use fuzzy matching to resolve old_name
-    result = resolve_file_fuzzy(old_name, include_archived=archived)
+    # Use fuzzy matching to resolve old_name with focus prioritization
+    focused = get_focused_project()
+    result = resolve_file_fuzzy(old_name, include_archived=archived, focused_project=focused)
 
     if result is None:
         return  # User cancelled

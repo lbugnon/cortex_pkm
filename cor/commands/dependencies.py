@@ -11,6 +11,7 @@ from ..search import resolve_file_fuzzy, get_file_path
 from ..core.notes import find_notes, parse_note
 from ..schema import DATE_TIME
 from ..utils import get_notes_dir, require_init, log_info
+from ..config import get_focused_project
 
 
 @click.command(short_help="Add requirement between notes")
@@ -34,15 +35,16 @@ def depend_add(dependent_item: str, required_item: str):
     """
     notes_dir = get_notes_dir()
 
-    # Resolve both items using fuzzy matching
-    result1 = resolve_file_fuzzy(dependent_item, include_archived=False)
+    # Resolve both items using fuzzy matching with focus prioritization
+    focused = get_focused_project()
+    result1 = resolve_file_fuzzy(dependent_item, include_archived=False, focused_project=focused)
     if result1 is None:
         return
 
     dependent_stem, _ = result1
     dependent_path = get_file_path(dependent_stem, False)
 
-    result2 = resolve_file_fuzzy(required_item, include_archived=False)
+    result2 = resolve_file_fuzzy(required_item, include_archived=False, focused_project=focused)
     if result2 is None:
         return
 
@@ -108,15 +110,16 @@ def depend_remove(dependent_item: str, required_item: str):
     Example:
         cor depend remove proj.feature proj.setup
     """
-    # Resolve items
-    result1 = resolve_file_fuzzy(dependent_item, include_archived=False)
+    # Resolve items with focus prioritization
+    focused = get_focused_project()
+    result1 = resolve_file_fuzzy(dependent_item, include_archived=False, focused_project=focused)
     if result1 is None:
         return
 
     dependent_stem, _ = result1
     dependent_path = get_file_path(dependent_stem, False)
 
-    result2 = resolve_file_fuzzy(required_item, include_archived=False)
+    result2 = resolve_file_fuzzy(required_item, include_archived=False, focused_project=focused)
     if result2 is None:
         return
 
@@ -165,8 +168,9 @@ def depend_list(item_name: str):
     """
     notes_dir = get_notes_dir()
 
-    # Resolve item
-    result = resolve_file_fuzzy(item_name, include_archived=False)
+    # Resolve item with focus prioritization
+    focused = get_focused_project()
+    result = resolve_file_fuzzy(item_name, include_archived=False, focused_project=focused)
     if result is None:
         return
 

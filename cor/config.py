@@ -109,3 +109,27 @@ def set_remote_inbox(bot_token: str) -> None:
     config = load_config()
     config["remote_inbox"] = bot_token
     save_config(config)
+
+
+def get_focused_project() -> str | None:
+    """Get the currently focused project from config.
+    
+    Returns project name or None if no focus set.
+    """
+    config = load_config()
+    return config.get("focused_project")
+
+
+def set_focused_project(project: str) -> None:
+    """Set the focused project in config."""
+    config = load_config()
+    config["focused_project"] = project
+    save_config(config)
+
+
+def clear_focused_project() -> None:
+    """Clear the focused project from config."""
+    config = load_config()
+    if "focused_project" in config:
+        del config["focused_project"]
+        save_config(config)
