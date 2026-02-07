@@ -1034,9 +1034,11 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
 @click.command(short_help="Show a project's or group's task tree")
 @click.option("--verbose", "-v", is_flag=True, help="Show task descriptions")
 @click.option("--depth", "-d", type=int, default=None, help="Maximum depth to display (default: unlimited)")
+@click.option("--sort", "-s", type=click.Choice(["status", "alphabetical"]), default="status",
+              help="Sort tasks by status (default) or alphabetically")
 @click.argument("focus", shell_complete=complete_existing_name)
 @require_init
-def tree(verbose: bool, depth: int | None, focus: str):
+def tree(verbose: bool, depth: int | None, sort: str, focus: str):
     """Show task tree for a project or task group.
 
     Displays tasks in a tree view with [x] or [ ] indicating status.
@@ -1048,6 +1050,7 @@ def tree(verbose: bool, depth: int | None, focus: str):
       cor tree myproject.group             # Focus on a specific group
       cor tree myproject -v                # Show descriptions
       cor tree myproject --depth 2         # Limit to 2 levels
+      cor tree myproject -s alphabetical   # Sort tasks alphabetically
     """
     notes_dir = get_notes_dir()
 
@@ -1138,21 +1141,26 @@ def tree(verbose: bool, depth: int | None, focus: str):
         suffix = f" (but {_format_note_label(note_count)})" if note_count else ""
         click.echo(f"  No subtasks found{suffix}.")
     else:
-        # Sort function: by status order, then by due date (prioritizing tasks with due dates), then by name
+        # Sort function based on user preference
         def sort_tasks(tasks):
-            def sort_key(t):
-                status_order = STATUS_ORDER.get(t.status, 3)
-                # For todo and active tasks, prioritize those with due dates
-                if t.status in ('todo', 'active'):
-                    # Tasks with due dates come first, sorted by due date
-                    # Tasks without due dates come after, sorted by name
-                    has_due = t.due is not None
-                    due_value = t.due if has_due else date.max
-                    return (status_order, not has_due, due_value, t.path.stem)
-                else:
-                    # For other statuses, use original sorting
-                    return (status_order, True, date.max, t.path.stem)
-            return sorted(tasks, key=sort_key)
+            if sort == "alphabetical":
+                # Sort alphabetically by task name (path stem)
+                return sorted(tasks, key=lambda t: t.path.stem.lower())
+            else:
+                # Default: sort by status order, then by due date, then by name
+                def sort_key(t):
+                    status_order = STATUS_ORDER.get(t.status, 3)
+                    # For todo and active tasks, prioritize those with due dates
+                    if t.status in ('todo', 'active'):
+                        # Tasks with due dates come first, sorted by due date
+                        # Tasks without due dates come after, sorted by name
+                        has_due = t.due is not None
+                        due_value = t.due if has_due else date.max
+                        return (status_order, not has_due, due_value, t.path.stem)
+                    else:
+                        # For other statuses, use original sorting
+                        return (status_order, True, date.max, t.path.stem)
+                return sorted(tasks, key=sort_key)
 
         show_tree(
             focus,
