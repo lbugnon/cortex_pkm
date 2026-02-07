@@ -778,6 +778,7 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
     If a project is focused (via `cor focus`), automatically filters to that project.
     """
     notes_dir = get_notes_dir()
+    root_lines: list[str] = []
 
     # Apply focus if set and no explicit tag provided
     focused = get_focused_project()
@@ -881,11 +882,9 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
     if tag:
         header += f" [{format_title(tag)}]"
 
-    capture_lines: list[str] = []
-
     def emit(line: str = ""):
         click.echo(line)
-        capture_lines.append(click.unstyle(line))
+        root_lines.append(click.unstyle(line))
 
     # Show focus indicator if filtering by focused project
     if focused and tag == focused:
@@ -895,18 +894,19 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
 
     # === Project-specific view: show full tree (except TODO) ===
     if project_filter:
-        for project_name in sorted(project_filter):
+        # Find all tasks that match the tag and their parent projects
+        matching_tasks = [t for t in all_tasks.values() if _matches_tag(t, tag, project_tags)]
+        matching_projects = set()
+        for t in matching_tasks:
+            if t.parent_project:
+                matching_projects.add(t.parent_project)
+        # Also include projects that match the tag directly (by name or by having the tag)
+        for proj_name, proj_tags in project_tags.items():
+            if tag == proj_name or tag in proj_tags:
+                matching_projects.add(proj_name)
+
+        for project_name in sorted(matching_projects):
             display_project = format_title(project_name)
-            # When filtering by tag, show projects/tasks that match the tag
-            matching_tasks = [t for t in all_tasks.values() if _matches_tag(t, tag, project_tags)]
-            matching_projects = set()
-            for t in matching_tasks:
-                if t.parent_project:
-                    matching_projects.add(t.parent_project)
-            
-            if project_name not in matching_projects and project_name not in [t.path.stem for t in matching_tasks if t.parent_project == project_name]:
-                emit(click.style(f"\nProject '{display_project}' not found or has no matching tasks.", dim=True))
-                continue
 
             # Only count matching tasks for this project/tag
             matching_for_project = [t for t in matching_tasks if t.parent_project == project_name or (not t.parent_project and t.path.stem.startswith(project_name))]
@@ -943,7 +943,7 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
                 filter_fn=weekly_filter,
                 sort_fn=weekly_sort,
                 render_fn=weekly_render,
-                capture=capture_lines,
+                capture=root_lines,
                 verbose=verbose,
                 all_notes=notes,
                 note_counts=note_counts,
@@ -959,16 +959,16 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
                     emit(f"    • {hp.title} {status_str}")
 
         emit()
-        if capture_lines:
-            _update_root_section(notes_dir, "Weekly", "\n".join(capture_lines))
+        if root_lines:
+            _update_root_section(notes_dir, "Weekly", "\n".join(root_lines))
         return
 
     # === Default view: show completed tasks this week ===
     if not projects_with_completed:
         emit(click.style("\nNo completed tasks this week.", dim=True))
         emit()
-        if capture_lines:
-            _update_root_section(notes_dir, "Weekly", "\n".join(capture_lines))
+        if root_lines:
+            _update_root_section(notes_dir, "Weekly", "\n".join(root_lines))
         return
 
     emit(click.style(f"\nCompleted: {len(completed_this_week)} tasks\n", fg="green", bold=True))
@@ -1020,15 +1020,15 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
             tasks_by_parent,
             filter_fn=weekly_filter_completed,
             render_fn=weekly_render_completed,
-            capture=capture_lines,
+            capture=root_lines,
             verbose=verbose,
             all_notes=notes,
             note_counts=note_counts,
         )
         emit()
 
-    if capture_lines:
-        _update_root_section(notes_dir, "Weekly", "\n".join(capture_lines))
+    if root_lines:
+        _update_root_section(notes_dir, "Weekly", "\n".join(root_lines))
 
 
 @click.command(short_help="Show a project's or group's task tree")
