@@ -9,9 +9,10 @@ from pathlib import Path
 import click
 
 from . import cli, _install_pre_commit_hook, _install_shell_completion
-from ..config import set_vault_path
+from ..config import set_vault_path, _config_file
 from ..schema import DATE_TIME
 from ..utils import get_notes_dir, get_templates_dir, log_info, log_verbose
+import os
 
 
 @cli.command()
@@ -33,6 +34,11 @@ def init(ctx, yes: bool):
             click.echo("Aborted.")
             return
     set_vault_path(vault_path)
+    
+    # Ensure config file has secure permissions
+    cfg_file = _config_file()
+    if cfg_file.exists():
+        os.chmod(cfg_file, 0o600)
     
     # Get directories AFTER setting vault path
     notes_dir = get_notes_dir()

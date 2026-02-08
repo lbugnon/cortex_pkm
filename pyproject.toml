@@ -34,6 +34,9 @@ dependencies = [
     "arxiv>=2.0.0",
     "bibtexparser>=1.4",
     "dateparser>=1.2",
+    "google-auth-oauthlib>=1.0",
+    "google-auth-httplib2>=0.1",
+    "google-api-python-client>=2.0",
 ]
 
 [project.urls]
