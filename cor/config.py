@@ -10,6 +10,11 @@ from pathlib import Path
 import yaml
 
 
+def get_config_path() -> Path:
+    """Return the path to the config file."""
+    return _config_file()
+
+
 def _config_dir() -> Path:
     """Return the configuration directory (respects XDG_CONFIG_HOME)."""
     xdg = os.environ.get("XDG_CONFIG_HOME")
@@ -37,10 +42,16 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
-    """Save config to the config file, creating directories as needed."""
+    """Save config to the config file, creating directories as needed.
+    
+    Sets file permissions to 0o600 (owner read/write only) for security.
+    """
     cfg_dir = _config_dir()
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    _config_file().write_text(yaml.dump(config, default_flow_style=False))
+    cfg_file = _config_file()
+    cfg_file.write_text(yaml.dump(config, default_flow_style=False))
+    # Restrict permissions: owner read/write only
+    os.chmod(cfg_file, 0o600)
 
 
 def get_vault_path() -> Path:

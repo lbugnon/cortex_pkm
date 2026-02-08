@@ -203,6 +203,10 @@ from ..commands.log import log
 from ..commands.dependencies import depend
 from ..commands.refs import ref
 from ..commands.status import daily, projects, weekly, tree, status
+from ..commands.calendar import auth as calendar_auth
+from ..commands.calendar import sync as calendar_sync
+from ..commands.calendar import status as calendar_status
+from ..commands.calendar import logout as calendar_logout
 
 cli.add_command(init)
 cli.add_command(example_vault)
@@ -231,5 +235,17 @@ cli.add_command(projects)
 cli.add_command(weekly)
 cli.add_command(tree)
 cli.add_command(status)
+
+# Calendar commands group
+@cli.group(name="calendar")
+def calendar_group():
+    """Google Calendar integration for due dates."""
+    pass
+
+calendar_group.add_command(calendar_auth, name="auth")
+calendar_group.add_command(calendar_sync, name="sync")
+calendar_group.add_command(calendar_status, name="status")
+calendar_group.add_command(calendar_logout, name="logout")
+cli.add_command(calendar_group)
 
 __all__ = ["cli"]
