@@ -237,3 +237,40 @@ class TestNewCommandNaturalLanguage:
         assert post["status"] == "active"
         assert "tags" in post.metadata
         assert "production" in post["tags"]
+
+    def test_new_task_with_only_due_date_no_description(self, runner, initialized_vault, monkeypatch):
+        """cor new task should work when text only contains natural language keywords.
+        
+        This tests the case where the user provides text like 'due tonight' which
+        gets entirely consumed by natural language parsing, leaving empty cleaned_text.
+        The due date should be set, and the editor should NOT open (user provided text).
+        """
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project first
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+
+        # Create task with only due date keyword (no actual description text)
+        result = runner.invoke(
+            cli,
+            ["new", "task", "myproj.mytask", "due", "tomorrow", "--no-edit"]
+        )
+        assert result.exit_code == 0, f"New task failed: {result.output}"
+        
+        # Verify the task was created
+        task_path = initialized_vault / "myproj.mytask.md"
+        assert task_path.exists()
+        
+        # Verify the due date is set (the important part!)
+        post = frontmatter.load(task_path)
+        assert "due" in post.metadata
+        assert post.metadata["due"] is not None
+        
+        # Due date should be approximately tomorrow
+        due_date = datetime.strptime(post["due"], "%Y-%m-%d %H:%M")
+        tomorrow = datetime.now() + timedelta(days=1)
+        assert abs((due_date - tomorrow).days) <= 1
+        
+        # The description should NOT contain "due tomorrow" text
+        # (it may be empty or have just the placeholder)
+        assert "due tomorrow" not in post.content.lower()

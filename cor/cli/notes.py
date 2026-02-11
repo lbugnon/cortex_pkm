@@ -220,11 +220,13 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     if text:
         text = " ".join(text)
     
+    text_was_provided = False
     if text and note_type in ("task", "note"):
+        text_was_provided = True
         # Parse natural language dates, tags, and status
         cleaned_text, due_date, parsed_tags, parsed_status = parse_natural_language_text(text)
         
-        # Update the description with cleaned text
+        # Update the description with cleaned text (only if there's actual text left)
         if cleaned_text:
             click.echo("Added description text.")
             with filepath.open("r+") as f:
@@ -259,8 +261,10 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
             with open(filepath, 'wb') as f:
                 frontmatter.dump(post, f, sort_keys=False)
             click.echo(f"Set status: {parsed_status}")
-    elif not no_edit:
-       open_in_editor(filepath)
+    
+    # Open editor only if no text was provided (and --no-edit not set)
+    if not text_was_provided and not no_edit:
+        open_in_editor(filepath)
 
 
 @cli.command()
@@ -602,6 +606,13 @@ def expand(name: str):
         # Replace characters that can break filenames: / { ( \ ) } , and others
         # Note: periods are preserved (e.g., v1.2.3, config.yaml)
         safe_name = re.sub(r'[,/{}()\\\[\]<>:;\'"?*|]', '_', shortened_name)
+        # Truncate to avoid exceeding filesystem filename limits (max 255 chars)
+        # Calculate max safe_name length: 255 - len(task_stem) - len('.') - len('.md')
+        max_filename_len = 255
+        max_safe_name_len = max_filename_len - len(task_stem) - 1 - 3  # -1 for '.', -3 for '.md'
+        max_safe_name_len = max(20, max_safe_name_len)  # Ensure at least 20 chars for safe_name
+        if len(safe_name) > max_safe_name_len:
+            safe_name = safe_name[:max_safe_name_len]
         subtask_filename = f"{task_stem}.{safe_name}.md"
         subtask_path = notes_dir / subtask_filename
 

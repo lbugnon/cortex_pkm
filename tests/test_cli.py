@@ -388,6 +388,37 @@ Mix of different statuses:
         dropped_task = frontmatter.load(initialized_vault / "myproj.feature.dropped-task.md")
         assert dropped_task['status'] == 'dropped'
 
+    def test_expand_truncates_long_filenames(self, runner, initialized_vault, monkeypatch):
+        """cor expand should truncate very long task names to avoid filesystem errors."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        # Create a very long task name (>300 chars) that would exceed filename limits
+        long_name = "this-is-very-long-task-name-that-would-normally-exceed-the-maximum-filename-length-limit-of-most-filesystems" * 4
+        post.content = f"""## Description
+
+- [ ] {long_name}
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
+        assert result.exit_code == 0, f"Expand failed: {result.output}"
+        
+        # Check that a subtask file was created (truncated)
+        subtask_files = list(initialized_vault.glob("myproj.feature.this-is-very-long*.md"))
+        assert len(subtask_files) == 1, "Should create exactly one subtask file with truncated name"
+        
+        # Verify the filename is not too long (should be <= 255 chars)
+        filename = subtask_files[0].name
+        assert len(filename) <= 255, f"Filename too long: {len(filename)} chars"
+
 class TestLog:
     """Test cor log command."""
 
