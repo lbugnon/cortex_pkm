@@ -55,6 +55,18 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
             # Non-fatal: continue with git sync even if inbox pull fails
             click.echo(click.style(f"Inbox pull failed: {e.message}", fg="yellow"), err=True)
 
+    # Sync calendar (if authenticated)
+    from ..commands.calendar import _get_credentials
+    if _get_credentials():
+        try:
+            from ..commands.calendar import sync as calendar_sync_cmd
+            # Create a new context for the calendar sync command
+            ctx = click.get_current_context()
+            ctx.invoke(calendar_sync_cmd, calendar="Cortex Tasks")
+        except Exception as e:
+            # Non-fatal: continue with git sync even if calendar sync fails
+            click.echo(click.style(f"Calendar sync failed: {e}", fg="yellow"), err=True)
+
     # Step 1: Pull (unless skipped)
     if not no_pull:
         click.echo("Pulling from remote...")

@@ -151,6 +151,10 @@ tags: [coding, urgent]
 | `cor config inbox <token>` | Configure Telegram bot for mobile inbox |
 | `cor config` | Show current configuration |
 | `cor inbox` | Test Telegram connection and show pending messages |
+| `cor calendar auth` | Authenticate with Google Calendar |
+| `cor calendar sync` | Sync due dates to Google Calendar |
+| `cor calendar status` | Check calendar authentication status |
+| `cor calendar logout` | Remove Google Calendar credentials |
 | `cor maintenance sync` | Manually run archive/status sync |
 
 ### Natural Language Dates and Tags
@@ -299,6 +303,48 @@ Capture notes from your phone by sending messages to a Telegram bot. Messages ar
    ```
 
 
+### Google Calendar Integration
+
+Sync task due dates to Google Calendar. Events are created automatically when you run `cor sync` (if authenticated).
+
+2. **Authenticate**:
+   ```bash
+   cor calendar auth
+   ```
+   - This opens a browser for Google sign-in
+   - Grant permission to manage your calendar
+   - The refresh token is stored securely (you won't need to do this again)
+
+3. **Verify**:
+   ```bash
+   cor calendar status   # Should show "✓ Authenticated"
+   ```
+
+#### Usage
+
+```bash
+# Sync due dates manually
+cor calendar sync
+
+# Sync to a different calendar
+cor calendar sync -c "My Work Calendar"
+
+# Check authentication status
+cor calendar status
+
+# Logout and remove stored credentials
+cor calendar logout
+```
+
+**Auto-sync**: When you run `cor sync`, calendar events are updated automatically if you're authenticated.
+
+**How it works**:
+- Creates events for tasks with `due:` dates that are not done/dropped
+- Updates existing events when due dates change
+- Creates a "Cortex Tasks" calendar if it doesn't exist
+- Events include task status in the title: `[active] Task name`
+
+
 ### File Hierarchy & Linking
 
 Cortex uses **dot notation** for hierarchy: `project.group.task.md`
@@ -403,7 +449,8 @@ source ~/.zshrc # or .bashrc
 
 ```
 ~/.config/cortex/
-└── config.yaml             # Global config (vault path, verbosity)
+├── config.yaml             # Global config (vault path, verbosity)
+└── google_credentials.pickle  # Google Calendar auth (chmod 600)
 
 ~/.zshrc or ~/.bashrc       # Shell completion automatically added here
 
