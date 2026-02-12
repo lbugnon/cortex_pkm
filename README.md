@@ -303,52 +303,22 @@ Capture notes from your phone by sending messages to a Telegram bot. Messages ar
    ```
 
 
-### Google Calendar Integration (draft testing)
+### Google Calendar Integration
 
 Sync task due dates to Google Calendar. Events are created automatically when you run `cor sync` (if authenticated).
 
-#### Setup (~10 minutes)
-
-1. **Create a Google Cloud project**:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project (or use existing)
-   - Enable the **Google Calendar API**: APIs & Services → Enable APIs → Search "Calendar API"
-
-2. **Configure OAuth consent screen**:
-   - Go to **APIs & Services → OAuth consent screen**
-   - Select **External** (for personal use) or **Internal** (if using Google Workspace)
-   - Fill in required fields (app name, user support email, developer email)
-   - Add scope: `https://www.googleapis.com/auth/calendar` (full calendar access needed to list/create calendars and events)
-   - Save and continue through the remaining steps
-   - **Add yourself as a test user** (more secure than publishing):
-     - Go to **Audience** section (or scroll down to Test users)
-     - Click **Add Users**
-     - Enter your Google email address
-     - Click **Save**
-   - Leave the app in "Testing" mode (don't click Publish)
-
-   *Alternative: You can click **PUBLISH APP** to put it in production mode, but adding yourself as a test user is more secure for personal use.*
-
-3. **Create OAuth credentials**:
-   - Go to **APIs & Services → Credentials**
-   - Click **Create Credentials → OAuth client ID**
-   - Select **Desktop app** as application type
-   - Give it a name (e.g., "Cortex PKM")
-   - Copy the **Client ID** and **Client Secret**
-
-4. **Authenticate Cortex**:
+2. **Authenticate**:
    ```bash
-   cor calendar auth --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+   cor calendar auth
    ```
    - This opens a browser for Google sign-in
    - Grant permission to manage your calendar
    - The refresh token is stored securely (you won't need to do this again)
 
-5. **Verify authentication**:
+3. **Verify**:
    ```bash
    cor calendar status   # Should show "✓ Authenticated"
    ```
-
 
 #### Usage
 

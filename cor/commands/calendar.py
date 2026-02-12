@@ -20,6 +20,19 @@ from ..utils import get_notes_dir, require_init
 # Google API scopes - need full calendar access to list/create calendars
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
+# Default OAuth client configuration for Desktop app
+DEFAULT_CLIENT_CONFIG = {
+    "installed": {
+        # These will be populated when you set up the Google Cloud project
+        # See: https://console.cloud.google.com/apis/credentials
+        "client_id": "769575986616-uet5a3ch861jkspbr6tiuno1d913ju7n.apps.googleusercontent.com",  
+        "client_secret": "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", 
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": ["http://127.0.0.1"],
+    }
+}
+
 
 def _get_credentials_file() -> Path:
     """Get path to store Google credentials (refresh token)."""
@@ -170,53 +183,56 @@ def _find_or_create_calendar(service, calendar_name: str = "Cortex Tasks") -> st
 
 
 @click.command(short_help="Authenticate with Google Calendar")
-@click.option("--client-id", help="Google OAuth client ID (for custom OAuth app)")
-@click.option("--client-secret", help="Google OAuth client secret (for custom OAuth app)")
+@click.option("--client-id", help="Custom OAuth client ID (override default)")
+@click.option("--client-secret", help="Custom OAuth client secret (override default)")
 def auth(client_id: Optional[str], client_secret: Optional[str]):
     """Authenticate with Google Calendar.
     
     Opens a browser for OAuth authentication. The refresh token is stored
     securely and used to maintain access without re-authentication.
     
-    To use your own OAuth app:
+    By default, uses the built-in Cortex OAuth app. To use your own:
       cor calendar auth --client-id YOUR_ID --client-secret YOUR_SECRET
-    
-    Otherwise, a default Cortex app is used.
     """
     from google_auth_oauthlib.flow import InstalledAppFlow
     
-    # Use provided credentials or default
+    # Determine which credentials to use
     if client_id and client_secret:
+        # User provided custom credentials
         client_config = {
             "installed": {
                 "client_id": client_id,
                 "client_secret": client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"],
+                "redirect_uris": ["http://127.0.0.1"],
             }
         }
-        flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-    else:
-        # Default client configuration
-        # Note: In production, this would use a proper client config
-        click.echo(click.style("Using default Cortex OAuth app...", dim=True))
-        click.echo()
-        click.echo(
-            "Note: For production use, create your own OAuth app at:"
-            "\n  https://console.cloud.google.com/apis/credentials"
-        )
-        click.echo()
-        
-        # For now, require user to provide their own credentials
-        # This avoids shipping client secrets in the package
+    elif client_id or client_secret:
         raise click.ClickException(
-            "Please provide --client-id and --client-secret.\n"
-            "Create OAuth credentials at: https://console.cloud.google.com/apis/credentials\n"
-            "Required scopes: https://www.googleapis.com/auth/calendar.events"
+            "Please provide both --client-id and --client-secret, or neither to use defaults."
         )
+    elif DEFAULT_CLIENT_CONFIG["installed"]["client_id"] is None:
+        # No default credentials configured
+        raise click.ClickException(
+            "No OAuth credentials configured.\n\n"
+            "To set up Google Calendar integration:\n"
+            "1. Go to https://console.cloud.google.com/apis/credentials\n"
+            "2. Create a project (or use existing)\n"
+            "3. Enable Google Calendar API\n"
+            "4. Create Credentials → OAuth client ID → Desktop app\n"
+            "5. Copy client_id and client_secret to:\n"
+            "   cor/commands/calendar.py → DEFAULT_CLIENT_CONFIG\n\n"
+            "Or use custom credentials:\n"
+            "   cor calendar auth --client-id YOUR_ID --client-secret YOUR_SECRET"
+        )
+    else:
+        # Use default embedded credentials
+        client_config = DEFAULT_CLIENT_CONFIG
     
     # Run OAuth flow
+    flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+    
     try:
         creds = flow.run_local_server(port=0)
     except Exception as e:
