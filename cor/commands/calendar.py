@@ -212,20 +212,6 @@ def auth(client_id: Optional[str], client_secret: Optional[str]):
         raise click.ClickException(
             "Please provide both --client-id and --client-secret, or neither to use defaults."
         )
-    elif DEFAULT_CLIENT_CONFIG["installed"]["client_id"] is None:
-        # No default credentials configured
-        raise click.ClickException(
-            "No OAuth credentials configured.\n\n"
-            "To set up Google Calendar integration:\n"
-            "1. Go to https://console.cloud.google.com/apis/credentials\n"
-            "2. Create a project (or use existing)\n"
-            "3. Enable Google Calendar API\n"
-            "4. Create Credentials → OAuth client ID → Desktop app\n"
-            "5. Copy client_id and client_secret to:\n"
-            "   cor/commands/calendar.py → DEFAULT_CLIENT_CONFIG\n\n"
-            "Or use custom credentials:\n"
-            "   cor calendar auth --client-id YOUR_ID --client-secret YOUR_SECRET"
-        )
     else:
         # Use default embedded credentials
         client_config = DEFAULT_CLIENT_CONFIG
