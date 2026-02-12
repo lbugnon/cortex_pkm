@@ -1,50 +1,70 @@
-from urllib import request, error
+"""Tests for Telegram inbox functionality."""
+
+import pytest
+from pathlib import Path
+from datetime import datetime
+
+# Tests would require mocking Telegram API, leaving as placeholder
+# The actual implementation is tested through integration tests
 
 
-# TODO
-def test_telegram_connection(bot_token: str):
-    """Test Telegram bot connection and show bot info.
+def test_get_existing_inbox_items(temp_vault):
+    """Test extracting existing inbox items from backlog."""
+    from cor.commands.inbox import _get_existing_inbox_items
+    
+    backlog_path = temp_vault / "backlog.md"
+    
+    # Write test content
+    content = """---
+created: 2025-01-01
+modified: 2025-01-01
+---
+# Backlog
 
-    Args:
-        bot_token: Telegram bot API token
+Capture anything here.
 
-    Raises:
-        click.ClickException: If API call fails
-    """
-    base_url = f"https://api.telegram.org/bot{bot_token}"
+## Inbox
 
-    # Get bot info
-    try:
-        with request.urlopen(f"{base_url}/getMe") as response:
-            data = json.loads(response.read())
+- First item
+- Second item
+- Duplicate item
 
-        if data.get("ok"):
-            bot_info = data.get("result", {})
-            click.echo(click.style("✓ Bot connection successful", fg="green"))
-            click.echo(f"  Bot name: {bot_info.get('first_name')}")
-            click.echo(f"  Username: @{bot_info.get('username')}")
-            click.echo()
-        else:
-            raise click.ClickException(f"Bot error: {data.get('description')}")
+## Notes
 
-        # Check for updates
-        with request.urlopen(f"{base_url}/getUpdates") as response:
-            data = json.loads(response.read())
+- This should not be counted
+- Another note
+"""
+    backlog_path.write_text(content)
+    
+    existing = _get_existing_inbox_items(backlog_path)
+    
+    assert "first item" in existing
+    assert "second item" in existing
+    assert "duplicate item" in existing
+    assert "this should not be counted" not in existing
 
-        if data.get("ok"):
-            updates = data.get("result", [])
-            click.echo(f"Pending messages: {len(updates)}")
-            if updates:
-                click.echo("\nMessages:")
-                for update in updates:
-                    msg = update.get("message", {})
-                    text = msg.get("text", "")
-                    from_user = msg.get("from", {}).get("first_name", "Unknown")
-                    click.echo(f"  - {from_user}: {text}")
-            else:
-                click.echo(click.style("\nNo messages found.", fg="yellow"))
-                click.echo("Make sure you:")
-                click.echo("  1. Started your bot (send /start)")
-                click.echo("  2. Sent at least one message to it")
-    except error.URLError as e:
-        raise click.ClickException(f"Connection failed: {e}")
+
+def test_get_existing_inbox_items_empty(temp_vault):
+    """Test extracting items from empty backlog."""
+    from cor.commands.inbox import _get_existing_inbox_items
+    
+    backlog_path = temp_vault / "backlog.md"
+    backlog_path.write_text("""---
+created: 2025-01-01
+---
+# Backlog
+
+## Inbox
+
+""")
+    
+    existing = _get_existing_inbox_items(backlog_path)
+    assert len(existing) == 0
+
+
+def test_get_existing_inbox_items_no_file():
+    """Test extracting items when file doesn't exist."""
+    from cor.commands.inbox import _get_existing_inbox_items
+    
+    existing = _get_existing_inbox_items(Path("/nonexistent/backlog.md"))
+    assert len(existing) == 0

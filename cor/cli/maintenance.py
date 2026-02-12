@@ -17,8 +17,10 @@ from ..sync import MaintenanceRunner
 @click.option("--message", "-m", type=str, help="Custom commit message")
 @click.option("--no-push", is_flag=True, help="Commit only, don't push")
 @click.option("--no-pull", is_flag=True, help="Skip pull before commit")
+@click.option("--full-sync", "full_sync", is_flag=True, help="Sync all Telegram messages including previously read ones")
+@click.option("--delete-after-inbox", "delete_after_inbox", is_flag=True, help="Delete Telegram messages after syncing instead of just acknowledging them")
 @require_init
-def sync(message: str | None, no_push: bool, no_pull: bool):
+def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, delete_after_inbox: bool):
     """Sync vault with git remote.
 
     Convenient workflow: pull → commit all changes → push
@@ -48,9 +50,16 @@ def sync(message: str | None, no_push: bool, no_pull: bool):
     bot_token = get_remote_inbox()
     if bot_token:
         try:
-            added = pull_remote_inbox(notes_dir, bot_token)
+            added = pull_remote_inbox(
+                notes_dir, 
+                bot_token,
+                full_sync=full_sync,
+                delete_after_sync=delete_after_inbox
+            )
             if added:
                 click.echo(click.style(f"Pulled {added} items from Telegram inbox", fg="cyan"))
+            elif full_sync:
+                click.echo(click.style("No new messages in Telegram inbox", fg="green"))
         except click.ClickException as e:
             # Non-fatal: continue with git sync even if inbox pull fails
             click.echo(click.style(f"Inbox pull failed: {e.message}", fg="yellow"), err=True)

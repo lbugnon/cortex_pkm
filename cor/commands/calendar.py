@@ -316,9 +316,38 @@ def sync(calendar: str):
     # Build set of task IDs that should have events
     task_ids_to_sync = {task.path.stem for task in tasks_to_sync}
     
+    def _event_needs_update(existing: dict, new_body: dict) -> bool:
+        """Check if an event needs to be updated by comparing key fields."""
+        # Compare summary (title)
+        if existing.get("summary") != new_body.get("summary"):
+            return True
+        
+        # Compare dates (all-day events use 'date' field)
+        existing_start = existing.get("start", {})
+        new_start = new_body.get("start", {})
+        if existing_start.get("date") != new_start.get("date"):
+            return True
+        
+        existing_end = existing.get("end", {})
+        new_end = new_body.get("end", {})
+        if existing_end.get("date") != new_end.get("date"):
+            return True
+        
+        # Compare extended properties (status, priority)
+        existing_props = existing.get("extendedProperties", {}).get("private", {})
+        new_props = new_body.get("extendedProperties", {}).get("private", {})
+        
+        if existing_props.get("cortex_status") != new_props.get("cortex_status"):
+            return True
+        if existing_props.get("cortex_priority") != new_props.get("cortex_priority"):
+            return True
+        
+        return False
+    
     # Sync tasks
     created_count = 0
     updated_count = 0
+    unchanged_count = 0
     deleted_count = 0
     skipped_count = 0
     
@@ -359,15 +388,18 @@ def sync(calendar: str):
         
         try:
             if existing:
-                # Update existing event
-                event_id = existing["id"]
-                service.events().patch(
-                    calendarId=calendar_id,
-                    eventId=event_id,
-                    body=event_body,
-                ).execute()
-                updated_count += 1
-                click.echo(f"  Updated: {task_id}")
+                # Only update if something changed
+                if _event_needs_update(existing, event_body):
+                    event_id = existing["id"]
+                    service.events().patch(
+                        calendarId=calendar_id,
+                        eventId=event_id,
+                        body=event_body,
+                    ).execute()
+                    updated_count += 1
+                    click.echo(f"  Updated: {task_id}")
+                else:
+                    unchanged_count += 1
             else:
                 # Create new event
                 service.events().insert(
@@ -404,6 +436,8 @@ def sync(calendar: str):
     click.echo(click.style("Sync complete:", fg="green", bold=True))
     click.echo(f"  Created: {created_count}")
     click.echo(f"  Updated: {updated_count}")
+    if unchanged_count:
+        click.echo(f"  Unchanged: {unchanged_count}")
     if deleted_count:
         click.echo(f"  Deleted: {deleted_count}")
     if skipped_count:
