@@ -233,6 +233,7 @@ from ..commands.calendar import auth as calendar_auth
 from ..commands.calendar import sync as calendar_sync
 from ..commands.calendar import status as calendar_status
 from ..commands.calendar import logout as calendar_logout
+from .search_cmd import search
 
 cli.add_command(init)
 cli.add_command(example_vault)
@@ -261,6 +262,7 @@ cli.add_command(projects)
 cli.add_command(weekly)
 cli.add_command(tree)
 cli.add_command(status)
+cli.add_command(search)
 
 # Calendar commands group
 @cli.group(name="calendar", cls=CortexCLI)

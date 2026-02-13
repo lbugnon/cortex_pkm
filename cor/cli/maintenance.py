@@ -18,10 +18,11 @@ from ..sync import MaintenanceRunner
 @click.option("--message", "-m", type=str, help="Custom commit message")
 @click.option("--no-push", is_flag=True, help="Commit only, don't push")
 @click.option("--no-pull", is_flag=True, help="Skip pull before commit")
+@click.option("--autostash", is_flag=True, help="Automatically stash local changes before pull")
 @click.option("--full-sync", "full_sync", is_flag=True, help="Sync all Telegram messages including previously read ones")
 @click.option("--delete-after-inbox", "delete_after_inbox", is_flag=True, help="Delete Telegram messages after syncing instead of just acknowledging them")
 @require_init
-def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, delete_after_inbox: bool):
+def sync(message: str | None, no_push: bool, no_pull: bool, autostash: bool, full_sync: bool, delete_after_inbox: bool):
     """Sync vault with git remote.
 
     Convenient workflow: pull → commit all changes → push
@@ -80,17 +81,83 @@ def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, del
     # Step 1: Pull (unless skipped)
     if not no_pull:
         click.echo("Pulling from remote...")
+        
+        # Handle autostash: stash local changes before pull
+        stash_popped = False
+        if autostash:
+            # Check if there are local changes
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True
+            )
+            if status_result.stdout.strip():
+                click.echo("Auto-stashing local changes...")
+                stash_result = subprocess.run(
+                    ["git", "stash", "push", "-m", "cor sync autostash"],
+                    capture_output=True, text=True
+                )
+                if stash_result.returncode == 0:
+                    stash_popped = True
+                else:
+                    click.echo(click.style(f"Warning: stash failed: {stash_result.stderr}", fg="yellow"))
+        
         result = subprocess.run(
             ["git", "pull"],
             capture_output=True, text=True
         )
+        
+        # Pop stash after pull (regardless of success, to avoid leaving stash behind)
+        if stash_popped:
+            click.echo("Restoring local changes...")
+            pop_result = subprocess.run(
+                ["git", "stash", "pop"],
+                capture_output=True, text=True
+            )
+            if pop_result.returncode != 0:
+                click.echo(click.style(
+                    "Warning: Could not restore stashed changes. "
+                    "They remain in the stash. Use 'git stash pop' to restore manually.",
+                    fg="yellow"
+                ))
+        
         if result.returncode != 0:
             if "no tracking information" in result.stderr:
                 click.echo(click.style("No remote tracking branch. Skipping pull.", dim=True))
+            elif "will be overwritten" in result.stderr or "local changes" in result.stderr.lower():
+                # Local uncommitted changes would be overwritten
+                raise ExternalServiceError(
+                    "Pull failed: You have local uncommitted changes that conflict with remote.\n\n"
+                    "Quick fix:\n"
+                    "  cor sync --autostash    # Auto-stash, pull, then restore\n\n"
+                    "Or manually:\n"
+                    "  1. Commit first: cor sync --no-pull\n"
+                    "  2. Stash: git stash && cor sync\n"
+                    "  3. Force overwrite: git reset --hard && cor sync\n"
+                    f"\nDetails: {result.stderr}"
+                )
             else:
                 raise ExternalServiceError(f"Pull failed: {result.stderr}")
         elif result.stdout.strip():
             click.echo(result.stdout.strip())
+        
+        # Check for merge conflicts after pull
+        conflict_result = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=U"],
+            capture_output=True, text=True
+        )
+        if conflict_result.stdout.strip():
+            conflicts = conflict_result.stdout.strip().split("\n")
+            raise ExternalServiceError(
+                "Merge conflicts detected after pull.\n\n"
+                f"Conflicting files:\n  " + "\n  ".join(conflicts) + "\n\n"
+                "To resolve:\n"
+                "  1. Edit files to fix conflicts (look for '<<<<<<< HEAD' markers)\n"
+                "  2. git add <files>\n"
+                "  3. git commit -m 'Resolve merge conflicts'\n"
+                "  4. cor sync\n\n"
+                "Or abort and keep local version:\n"
+                "  git merge --abort && cor sync --no-pull"
+            )
 
     # Step 2: Check for changes
     result = subprocess.run(

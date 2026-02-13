@@ -3,6 +3,7 @@
 This package contains:
 - fuzzy.py: Fuzzy matching
 - completion.py: Consolidated shell completion logic
+- content.py: Full-text content search via ripgrep
 """
 
 from .fuzzy import (
@@ -12,6 +13,12 @@ from .fuzzy import (
     get_file_path,
     get_task_file_stems,
 )
+from .content import (
+    search_content,
+    parse_search_query,
+    filter_matches,
+    SearchMatch,
+)
 
 __all__ = [
     "fuzzy_match",
@@ -19,4 +26,8 @@ __all__ = [
     "resolve_task_fuzzy",
     "get_file_path",
     "get_task_file_stems",
+    "search_content",
+    "parse_search_query",
+    "filter_matches",
+    "SearchMatch",
 ]

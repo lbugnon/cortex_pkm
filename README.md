@@ -16,6 +16,20 @@ Small new year project to try new coding agents :)
 pip install -e .
 ```
 
+### Dependencies
+
+- **ripgrep** (rg) - Required for content search (`cor search`)
+  ```bash
+  # Ubuntu/Debian
+  sudo apt-get install ripgrep
+
+  # Arch Linux
+  sudo pacman -S ripgrep
+  
+  # Via conda
+  conda install -c conda-forge ripgrep
+  ```
+
 ## Development
 
 ```bash
@@ -135,7 +149,7 @@ tags: [coding, urgent]
 | `cor expand <task>` | Expand task checklist into individual subtasks |
 | `cor edit <name>` | Open existing file in editor (use `-a` to include archived) |
 | `cor mark <name> <status>` | Change task status (todo, active, blocked, done, dropped) |
-| `cor sync` | Pull, commit all changes, and push to remote |
+| `cor sync` | Pull, commit all changes, and push to remote (`--no-pull`, `--autostash`) |
 | `cor daily [tag]` | Show today's tasks; when `tag` is provided, only tasks matching the tag (by project name, task tags, or project tags) |
 | `cor weekly` | Show this week's summary |
 | `cor projects` | List active projects with status and last activity (from children) |
@@ -156,6 +170,48 @@ tags: [coding, urgent]
 | `cor calendar status` | Check calendar authentication status |
 | `cor calendar logout` | Remove Google Calendar credentials |
 | `cor maintenance sync` | Manually run archive/status sync |
+| `cor search <query>` | Full-text content search (supports filters: `status:`, `#tag`, `project:`) |
+
+### Search
+
+Full-text content search using ripgrep (fast, no indexing required):
+
+```bash
+# Basic content search
+cor search "neural network"
+
+# Search with filters
+cor search "status:active ML"
+cor search "#urgent"
+cor search "project:foundation_model"
+
+# Include archived files
+cor search "experiments" -a
+
+# Limit results
+cor search "training" -n 50
+
+# Compact output (no context lines)
+cor search "TODO" --no-context
+```
+
+### Sync & Conflict Resolution
+
+When working across multiple machines, sync conflicts can occur:
+
+```bash
+# Normal sync (pull → commit → push)
+cor sync
+
+# Skip pull (commit local changes only)
+cor sync --no-pull
+
+# Auto-stash local changes, pull, then restore
+cor sync --autostash
+
+# Commit only, don't push
+cor sync --no-push
+```
 
 ### Natural Language Dates and Tags
 
