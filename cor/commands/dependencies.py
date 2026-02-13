@@ -5,6 +5,7 @@ from datetime import datetime
 import click
 import frontmatter
 
+from ..exceptions import ValidationError
 from ..completions import complete_task_name
 from ..dependencies import get_dependency_info, validate_dependencies
 from ..search import resolve_file_fuzzy, get_file_path
@@ -57,7 +58,7 @@ def depend_add(dependent_item: str, required_item: str):
     # Check it's a task or project
     note_type = post.get("type")
     if note_type not in ("task", "project"):
-        raise click.ClickException(
+        raise ValidationError(
             f"{dependent_stem} is not a task or project (type: {note_type})"
         )
 
@@ -180,7 +181,7 @@ def depend_list(item_name: str):
     # Parse note
     note = parse_note(item_path)
     if note.note_type not in ("task", "project"):
-        raise click.ClickException(
+        raise ValidationError(
             f"{item_stem} is not a task or project (type: {note.note_type})"
         )
 

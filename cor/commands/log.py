@@ -5,6 +5,7 @@ from datetime import datetime
 import click
 import frontmatter
 
+from ..exceptions import ValidationError, NotFoundError
 from ..utils import get_notes_dir, require_init, log_info
 from ..schema import DATE_TIME
 
@@ -20,12 +21,12 @@ def log(text: str):
     """
     normalized = (" ".join(text) or "").strip()
     if not normalized:
-        raise click.ClickException("Text cannot be empty.")
+        raise ValidationError("Text cannot be empty.")
 
     notes_dir = get_notes_dir()
     backlog_path = notes_dir / "backlog.md"
     if not backlog_path.exists():
-        raise click.ClickException("No backlog.md found. Run 'cor init' first.")
+        raise NotFoundError("No backlog.md found. Run 'cor init' first.")
 
     post = frontmatter.load(backlog_path)
     lines = (post.content or "").splitlines()

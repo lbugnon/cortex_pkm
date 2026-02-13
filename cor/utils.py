@@ -12,6 +12,7 @@ from dateparser.search import search_dates
 from dateparser import parse as parse_date
 
 from .config import get_vault_path, get_verbosity
+from .exceptions import NotInitializedError, NotFoundError
 from .schema import DATE_TIME
 
 
@@ -21,7 +22,7 @@ def require_init(f):
     def wrapper(*args, **kwargs):
         notes_dir = get_vault_path()
         if not (notes_dir / "root.md").exists():
-            raise click.ClickException("Not initialized. Run 'cor init' first.")
+            raise NotInitializedError("Not initialized. Run 'cor init' first.")
         return f(*args, **kwargs)
     return wrapper
 
@@ -112,10 +113,9 @@ def get_all_notes() -> list[str]:
 
 def get_template(template_type: str) -> str:
     """Read a template file and return its contents."""
-    import click
     template_path = get_templates_dir() / f"{template_type}.md"
     if not template_path.exists():
-        raise click.ClickException(f"Template not found: {template_path}")
+        raise NotFoundError(f"Template not found: {template_path}")
     return template_path.read_text()
 
 

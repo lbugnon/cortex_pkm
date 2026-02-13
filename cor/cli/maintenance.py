@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from ..exceptions import CortexError, NotInitializedError, ExternalServiceError
 from . import cli, _install_pre_commit_hook, _install_shell_completion, _uninstall_pre_commit_hook
 from ..completions import complete_existing_name
 from ..utils import get_notes_dir, require_init, log_info
@@ -41,7 +42,7 @@ def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, del
         capture_output=True, text=True
     )
     if result.returncode != 0:
-        raise click.ClickException("Not in a git repository.")
+        raise ExternalServiceError("Not in a git repository.")
 
     # Step 0: Pull remote inbox (if configured)
     from ..config import get_remote_inbox
@@ -60,9 +61,9 @@ def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, del
                 click.echo(click.style(f"Pulled {added} items from Telegram inbox", fg="cyan"))
             elif full_sync:
                 click.echo(click.style("No new messages in Telegram inbox", fg="green"))
-        except click.ClickException as e:
+        except CortexError as e:
             # Non-fatal: continue with git sync even if inbox pull fails
-            click.echo(click.style(f"Inbox pull failed: {e.message}", fg="yellow"), err=True)
+            click.echo(click.style(f"Inbox pull failed: {e}", fg="yellow"), err=True)
 
     # Sync calendar (if authenticated)
     from ..commands.calendar import _get_credentials
@@ -87,7 +88,7 @@ def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, del
             if "no tracking information" in result.stderr:
                 click.echo(click.style("No remote tracking branch. Skipping pull.", dim=True))
             else:
-                raise click.ClickException(f"Pull failed: {result.stderr}")
+                raise ExternalServiceError(f"Pull failed: {result.stderr}")
         elif result.stdout.strip():
             click.echo(result.stdout.strip())
 
@@ -133,7 +134,7 @@ def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, del
         capture_output=True, text=True
     )
     if result.returncode != 0:
-        raise click.ClickException(f"Commit failed: {result.stderr}")
+        raise ExternalServiceError(f"Commit failed: {result.stderr}")
 
     # Step 5: Push (unless skipped)
     if not no_push:
@@ -146,7 +147,7 @@ def sync(message: str | None, no_push: bool, no_pull: bool, full_sync: bool, del
             if "no upstream branch" in result.stderr:
                 click.echo(click.style("No upstream branch. Use 'git push -u origin <branch>' first.", fg="yellow"))
             else:
-                raise click.ClickException(f"Push failed: {result.stderr}")
+                raise ExternalServiceError(f"Push failed: {result.stderr}")
         else:
             click.echo(click.style("Synced!", fg="green"))
     else:

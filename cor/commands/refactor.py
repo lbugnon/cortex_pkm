@@ -5,6 +5,7 @@ import shutil
 
 import click
 
+from ..exceptions import ValidationError, NotFoundError, AlreadyExistsError
 from ..completions import complete_existing_name, complete_group_project, complete_project_tasks, complete_new_parent
 from ..core.notes import parse_note
 from ..utils import (
@@ -70,13 +71,13 @@ def rename(archived: bool, old_name: str, new_name: str):
     note = parse_note(main_file)
 
     if "&" in new_name:
-        raise click.ClickException(
+        raise ValidationError(
             "Invalid name: '&' is not allowed in note names."
         )
 
     # Project rename keeps validation: new_name must not contain dots
     if note.note_type == "project" and "." in new_name:
-        raise click.ClickException(
+        raise ValidationError(
             f"Invalid project name '{new_name}': dots are reserved for hierarchy. "
             "Use hyphens instead (e.g., 'v0-1' not 'v0.1')."
         )
@@ -126,7 +127,7 @@ def rename(archived: bool, old_name: str, new_name: str):
     # Main file
     new_main_file = target_dir / f"{resolved_new_name}.md"
     if new_main_file.exists():
-        raise click.ClickException(f"Target already exists: {new_main_file}")
+        raise AlreadyExistsError(f"Target already exists: {new_main_file}")
     files_to_rename.append((main_file, new_main_file))
 
     # Find all children (files starting with old_name.)
@@ -138,7 +139,7 @@ def rename(archived: bool, old_name: str, new_name: str):
             new_child_path = search_dir / new_child_name
 
             if new_child_path.exists():
-                raise click.ClickException(f"Target already exists: {new_child_path}")
+                raise AlreadyExistsError(f"Target already exists: {new_child_path}")
             files_to_rename.append((child, new_child_path))
 
     # Collect all files that need link updates
@@ -162,7 +163,7 @@ def rename(archived: bool, old_name: str, new_name: str):
             parent_group_path = (archive_dir if in_archive else notes_dir) / f"{parent_group_stem}.md"
             project_path = (archive_dir if in_archive else notes_dir) / f"{project}.md"
             if not project_path.exists():
-                raise click.ClickException(f"Project not found: {project}.md")
+                raise NotFoundError(f"Project not found: {project}.md")
             if not parent_group_path.exists():
                 # Create group file from task template
                 log_info(click.style("Creating target group:", fg="cyan"))
@@ -391,13 +392,13 @@ def group(group: str, tasks: tuple):
 
     # Parse group argument
     if "." not in group:
-        raise click.ClickException(
+        raise ValidationError(
             "Group must be in format 'project.groupname'. Example: cor group myproject.refactor task1 task2"
         )
 
     parts = group.split(".")
     if len(parts) != 2:
-        raise click.ClickException(
+        raise ValidationError(
             "Group must have exactly one dot: 'project.groupname'"
         )
 
@@ -406,29 +407,29 @@ def group(group: str, tasks: tuple):
     # Validate project exists
     project_path = notes_dir / f"{project}.md"
     if not project_path.exists():
-        raise click.ClickException(f"Project not found: {project}.md")
+        raise NotFoundError(f"Project not found: {project}.md")
 
     # Validate at least one task provided
     if not tasks:
-        raise click.ClickException("At least one task must be specified")
+        raise ValidationError("At least one task must be specified")
 
     # Validate all tasks exist
     files_to_rename: list[tuple] = []
     for task in tasks:
         task_path = notes_dir / f"{project}.{task}.md"
         if not task_path.exists():
-            raise click.ClickException(f"Task not found: {project}.{task}.md")
+            raise NotFoundError(f"Task not found: {project}.{task}.md")
 
         new_task_path = notes_dir / f"{project}.{group_name}.{task}.md"
         if new_task_path.exists():
-            raise click.ClickException(f"Target already exists: {new_task_path}")
+            raise AlreadyExistsError(f"Target already exists: {new_task_path}")
 
         files_to_rename.append((task_path, new_task_path))
 
     # Check group file doesn't exist
     group_path = notes_dir / f"{group}.md"
     if group_path.exists():
-        raise click.ClickException(f"Group already exists: {group}.md")
+        raise AlreadyExistsError(f"Group already exists: {group}.md")
 
     # Collect all files that need link updates
     files_to_update_links: list = []

@@ -8,6 +8,7 @@ import click
 from rapidfuzz import fuzz, process
 from simple_term_menu import TerminalMenu
 
+from ..exceptions import NotFoundError
 from ..utils import get_notes_dir
 
 
@@ -153,7 +154,7 @@ def resolve_file_fuzzy(
         Tuple of (stem, is_archived) or None if cancelled/no match
 
     Raises:
-        click.ClickException: If no matches found
+        NotFoundError: If no matches found
     """
     notes_dir = get_notes_dir()
 
@@ -172,7 +173,7 @@ def resolve_file_fuzzy(
     matches = fuzzy_match(name, candidates, focused_project=focused_project)
 
     if not matches:
-        raise click.ClickException(f"No files found matching '{name}'")
+        raise NotFoundError(f"No files found matching '{name}'")
 
     # 3. Single high-confidence match: auto-select
     if len(matches) == 1 and matches[0][2] >= auto_select_threshold:
@@ -254,7 +255,7 @@ def resolve_task_fuzzy(
         Tuple of (stem, is_archived) or None if cancelled/no match
 
     Raises:
-        click.ClickException: If no matches found
+        NotFoundError: If no matches found
     """
     from ..core.notes import parse_metadata
 
@@ -279,7 +280,7 @@ def resolve_task_fuzzy(
     matches = fuzzy_match(name, candidates, focused_project=focused_project)
 
     if not matches:
-        raise click.ClickException(f"No tasks found matching '{name}'")
+        raise NotFoundError(f"No tasks found matching '{name}'")
 
     # 3. Single high-confidence match: auto-select
     if len(matches) == 1 and matches[0][2] >= auto_select_threshold:

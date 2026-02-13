@@ -5,6 +5,7 @@ import re
 
 import click
 
+from ..exceptions import NotFoundError, ValidationError
 from ..completions import complete_project, complete_existing_name
 from ..core.notes import find_notes
 from ..schema import STATUS_SYMBOLS
@@ -1065,7 +1066,7 @@ def tree(verbose: bool, depth: int | None, sort: str, focus: str):
         focus_path = archive_path
         is_archived = True
     else:
-        raise click.ClickException(f"Not found: {focus}")
+        raise NotFoundError(f"Not found: {focus}")
 
     # Include both active notes and archived ones
     notes = find_notes(notes_dir)
@@ -1083,7 +1084,7 @@ def tree(verbose: bool, depth: int | None, sort: str, focus: str):
             break
 
     if not focus_note:
-        raise click.ClickException(f"Could not parse: {focus}")
+        raise ValidationError(f"Could not parse: {focus}")
 
     # Determine if we're focusing on a project or a task/group
     is_project = focus_note.note_type == "project"

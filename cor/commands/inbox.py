@@ -8,6 +8,7 @@ from urllib import request, error
 import click
 import frontmatter
 
+from ..exceptions import NotFoundError, ExternalServiceError
 from ..schema import DATE_TIME
 
 
@@ -63,7 +64,7 @@ def test_telegram_connection(bot_token: str):
         bot_token: Telegram bot API token
 
     Raises:
-        click.ClickException: If API call fails
+        ExternalServiceError: If API call fails
     """
     from urllib import request, error
     
@@ -81,7 +82,7 @@ def test_telegram_connection(bot_token: str):
             click.echo(f"  Username: @{bot_info.get('username')}")
             click.echo()
         else:
-            raise click.ClickException(f"Bot error: {data.get('description')}")
+            raise ExternalServiceError(f"Bot error: {data.get('description')}")
 
         # Check for updates
         with request.urlopen(f"{base_url}/getUpdates") as response:
@@ -103,7 +104,7 @@ def test_telegram_connection(bot_token: str):
                 click.echo("  1. Started your bot (send /start)")
                 click.echo("  2. Sent at least one message to it")
     except error.URLError as e:
-        raise click.ClickException(f"Connection failed: {e}")
+        raise ExternalServiceError(f"Connection failed: {e}")
 
 
 def pull_remote_inbox(
@@ -126,13 +127,13 @@ def pull_remote_inbox(
         Number of messages added to backlog
 
     Raises:
-        click.ClickException: If API calls fail
+        ExternalServiceError: If API calls fail
     """
     base_url = f"https://api.telegram.org/bot{bot_token}"
     backlog_path = notes_dir / "backlog.md"
     
     if not backlog_path.exists():
-        raise click.ClickException("No backlog.md found. Run 'cor init' first.")
+        raise NotFoundError("No backlog.md found. Run 'cor init' first.")
 
     # Get existing items for deduplication (only needed for full_sync)
     existing_items = _get_existing_inbox_items(backlog_path) if full_sync else set()
@@ -154,13 +155,13 @@ def pull_remote_inbox(
         with request.urlopen(updates_url) as response:
             data = json.loads(response.read())
     except error.URLError as e:
-        raise click.ClickException(f"Failed to fetch Telegram messages: {e}")
+        raise ExternalServiceError(f"Failed to fetch Telegram messages: {e}")
     except json.JSONDecodeError:
-        raise click.ClickException("Invalid response from Telegram API")
+        raise ExternalServiceError("Invalid response from Telegram API")
 
     if not data.get("ok"):
         error_msg = data.get("description", "Unknown error")
-        raise click.ClickException(f"Telegram API error: {error_msg}")
+        raise ExternalServiceError(f"Telegram API error: {error_msg}")
 
     updates = data.get("result", [])
 

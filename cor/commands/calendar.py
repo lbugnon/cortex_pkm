@@ -13,6 +13,7 @@ from typing import Optional
 
 import click
 
+from ..exceptions import ValidationError, ConfigError, ExternalServiceError
 from ..config import get_config_path, load_config, save_config, get_timezone
 from ..core.notes import find_notes, _date_has_time
 from ..utils import get_notes_dir, require_init
@@ -216,7 +217,7 @@ def auth(client_id: Optional[str], client_secret: Optional[str]):
             }
         }
     elif client_id or client_secret:
-        raise click.ClickException(
+        raise ValidationError(
             "Please provide both --client-id and --client-secret, or neither to use defaults."
         )
     else:
@@ -229,7 +230,7 @@ def auth(client_id: Optional[str], client_secret: Optional[str]):
     try:
         creds = flow.run_local_server(port=0)
     except Exception as e:
-        raise click.ClickException(f"Authentication failed: {e}")
+        raise ExternalServiceError(f"Authentication failed: {e}")
     
     # Save credentials
     creds_dict = {
@@ -267,7 +268,7 @@ def sync(calendar: str):
     # Check authentication
     service = _build_service()
     if not service:
-        raise click.ClickException(
+        raise ConfigError(
             "Not authenticated with Google Calendar.\n"
             "Run: cor calendar auth"
         )
@@ -287,7 +288,7 @@ def sync(calendar: str):
     try:
         calendar_id = _find_or_create_calendar(service, calendar)
     except Exception as e:
-        raise click.ClickException(f"Failed to access calendar: {e}")
+        raise ExternalServiceError(f"Failed to access calendar: {e}")
     
     # Get existing events from calendar to handle updates and deletions
     existing_events = {}

@@ -9,6 +9,7 @@ import click
 import frontmatter
 
 from . import cli
+from ..exceptions import ValidationError, NotFoundError, AlreadyExistsError
 from ..schema import VALID_TASK_STATUS, STATUS_SYMBOLS, DATE_TIME
 from ..config import get_focused_project
 from ..core.notes import parse_metadata
@@ -63,15 +64,15 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     parts = name.split(".")
     for part in parts:
         if not part:
-            raise click.ClickException(
+            raise ValidationError(
                 "Invalid name: empty segment. Use 'project.task' format."
             )
         if "&" in part:
-            raise click.ClickException(
+            raise ValidationError(
                 "Invalid name: '&' is not allowed in note names."
             )
     if note_type=="project" and "." in name:
-        raise click.ClickException(
+        raise ValidationError(
             f"Invalid project name '{name}': dots are reserved for hierarchy. "
             "Use hyphens instead (e.g., 'v0-1' not 'v0.1')."
         )
@@ -100,7 +101,7 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
             parent_hierarchy = ".".join(parts[:-1])  # Everything except the last part
             task_name = parts[-1]
         else:
-            raise click.ClickException(
+            raise ValidationError(
                 "Invalid name: use 'project.task', 'project.group.task', or deeper hierarchy format."
             )
 
@@ -119,7 +120,7 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     filepath = notes_dir / filename
 
     if filepath.exists():
-        raise click.ClickException(f"File already exists: {filepath}")
+        raise AlreadyExistsError(f"File already exists: {filepath}")
     # Note: We don't check archive by default (consistent with edit/mark/move)
     # Archived files don't block creating new files with the same name
 
@@ -319,7 +320,7 @@ def tag(archived: bool, delete_tags: bool, name: str, tags: tuple[str, ...]):
       cor tag -d foundation_model ml
     """
     if not tags:
-        raise click.ClickException("Provide at least one tag to add or remove.")
+        raise ValidationError("Provide at least one tag to add or remove.")
 
     if name.startswith("archive/"):
         name = name[8:]
@@ -458,16 +459,16 @@ def mark(archived: bool, name: str, status: str, text: str | None):
     note = parse_metadata(file_path)
 
     if not note:
-        raise click.ClickException(f"Could not parse file: {file_path}")
+        raise NotFoundError(f"Could not parse file: {file_path}")
 
     if note.note_type != "task":
-        raise click.ClickException(
+        raise ValidationError(
             f"'{stem}' is a {note.note_type}, not a task. "
             "This command only works with tasks."
         )
 
     if status not in VALID_TASK_STATUS:
-        raise click.ClickException(
+        raise ValidationError(
             f"Invalid status '{status}'. "
             f"Valid: {', '.join(sorted(VALID_TASK_STATUS))}"
         )
@@ -481,7 +482,7 @@ def mark(archived: bool, name: str, status: str, text: str | None):
         if incomplete:
             note_type = note.note_type
             if note_type == "task":
-                raise click.ClickException(
+                raise ValidationError(
                     f"Cannot mark task group as {status}. Incomplete tasks: {', '.join(incomplete)}"
                 )
 
@@ -489,7 +490,7 @@ def mark(archived: bool, name: str, status: str, text: str | None):
     post = frontmatter.load(file_path)
 
     if 'status' not in post.metadata:
-        raise click.ClickException("Could not find status field in frontmatter")
+        raise ValidationError("Could not find status field in frontmatter")
 
     post['status'] = status
 
@@ -574,13 +575,13 @@ def expand(name: str):
 
     # Verify it's a task
     if post.get('type') != 'task':
-        raise click.ClickException(f"File is not a task: {task_file}")
+        raise ValidationError(f"File is not a task: {task_file}")
 
     # Extract checklist items from content
     checklist_items = parse_checklist_items(post.content)
 
     if not checklist_items:
-        raise click.ClickException(
+        raise ValidationError(
             f"No checklist items found in {task_file.name}. "
             "Add unchecked items like '- [ ] subtask-name' to the Description section."
         )
@@ -591,7 +592,7 @@ def expand(name: str):
     # Determine parent info
     parent = post.get('parent')
     if not parent:
-        raise click.ClickException(f"Task has no parent field: {task_file}")
+        raise ValidationError(f"Task has no parent field: {task_file}")
 
     log_info(click.style(f"Expanding {task_stem} into {len(checklist_items)} subtasks...", fg="cyan"))
 

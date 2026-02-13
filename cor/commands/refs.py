@@ -6,6 +6,7 @@ from ..schema import DATE_TIME
 
 import click
 
+from ..exceptions import ValidationError, NotFoundError, AlreadyExistsError, ExternalServiceError
 from ..crossref import lookup_doi, extract_doi_from_url, CrossrefResult
 from ..bibtex import add_bib_entry, list_bib_entries, get_bib_entry
 from ..core.refs import (
@@ -71,14 +72,14 @@ def add(identifier: str, key: str | None, tags: tuple, no_edit: bool):
     doi, _ = extract_doi_from_url(identifier)
 
     if not doi:
-        raise click.ClickException(
+        raise ValidationError(
             "No DOI found in the provided identifier.\n"
         )
     # Check if DOI already exists in references.bib
     from ..bibtex import has_doi_in_bib
     existing_citekey = has_doi_in_bib(notes_dir, doi)
     if existing_citekey:
-        raise click.ClickException(
+        raise AlreadyExistsError(
             f"Reference with DOI {doi} already exists: {existing_citekey}"
         )
 
@@ -87,7 +88,7 @@ def add(identifier: str, key: str | None, tags: tuple, no_edit: bool):
     # Fetch metadata from Crossref
     result = lookup_doi(doi)
     if not result:
-        raise click.ClickException(
+        raise ExternalServiceError(
             f"Could not fetch metadata for DOI: {doi}\n"
             "Please check the DOI is correct and try again."
         )
@@ -108,7 +109,7 @@ def add(identifier: str, key: str | None, tags: tuple, no_edit: bool):
     if key:
         # User provided custom key
         if key in existing_keys:
-            raise click.ClickException(
+            raise AlreadyExistsError(
                 f"Citekey '{key}' already exists. Use a different key."
             )
         citekey = key
@@ -204,7 +205,7 @@ def show(citekey: str):
     # Load from .bib
     entry = get_bib_entry(notes_dir, citekey)
     if not entry:
-        raise click.ClickException(f"Reference not found: {citekey}")
+        raise NotFoundError(f"Reference not found: {citekey}")
 
     title = entry.get("title") or citekey
     authors_str = entry.get("author") or "Unknown"
@@ -243,7 +244,7 @@ def edit(citekey: str):
     ref_path = get_ref_path(citekey, notes_dir)
 
     if not ref_path.exists():
-        raise click.ClickException(f"Reference not found: {citekey}")
+        raise NotFoundError(f"Reference not found: {citekey}")
 
     open_in_editor(ref_path)
 
@@ -263,7 +264,7 @@ def delete(citekey: str, force: bool):
     ref_path = get_ref_path(citekey, notes_dir)
 
     if not ref_path.exists():
-        raise click.ClickException(f"Reference not found: {citekey}")
+        raise NotFoundError(f"Reference not found: {citekey}")
 
     if not force:
         from ..core.refs import Reference
@@ -299,7 +300,7 @@ def search(query: str, limit: int):
     notes_dir = get_notes_dir()
     q = (query or "").strip()
     if not q:
-        raise click.ClickException("Empty query.")
+        raise ValidationError("Empty query.")
 
     entries = list_bib_entries(notes_dir)
     if not entries:

@@ -8,6 +8,7 @@ This package contains the CLI command implementations, organized by category:
 """
 
 import os
+import sys
 import subprocess
 from pathlib import Path
 
@@ -15,12 +16,37 @@ import click
 
 from .. import __version__
 from ..config import get_verbosity, set_verbosity
+from ..exceptions import (
+    CortexError,
+    NotFoundError,
+    ExternalServiceError,
+)
 
 
 HOOKS_DIR = Path(__file__).parent.parent / "hooks"
 
 
-@click.group(context_settings={
+def _handle_cortex_error(e: CortexError) -> None:
+    """Handle CortexError exceptions with nice formatting.
+    
+    This function is called when a CortexError is caught at the CLI level.
+    It prints a user-friendly error message and exits with code 1.
+    """
+    click.secho(f"Error: {e}", fg="red", err=True)
+    sys.exit(1)
+
+
+class CortexCLI(click.Group):
+    """Custom CLI group that catches and formats CortexError exceptions."""
+    
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except CortexError as e:
+            _handle_cortex_error(e)
+
+
+@click.group(cls=CortexCLI, context_settings={
     "help_option_names": ["-h", "--help"],
     "max_content_width": 100,
 })
@@ -54,7 +80,7 @@ def _install_pre_commit_hook() -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise click.ClickException("Not in a git repository.")
+        raise ExternalServiceError("Not in a git repository.")
 
     git_dir = Path(result.stdout.strip())
     hooks_target = git_dir / "hooks"
@@ -64,7 +90,7 @@ def _install_pre_commit_hook() -> None:
     target = hooks_target / "pre-commit"
 
     if not source.exists():
-        raise click.ClickException(f"Hook source not found: {source}")
+        raise NotFoundError(f"Hook source not found: {source}")
 
     if target.exists():
         click.echo(f"Overwriting existing {target}")
@@ -180,7 +206,7 @@ def _uninstall_pre_commit_hook() -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise click.ClickException("Not in a git repository.")
+        raise ExternalServiceError("Not in a git repository.")
 
     git_dir = Path(result.stdout.strip())
     target = git_dir / "hooks" / "pre-commit"
@@ -237,7 +263,7 @@ cli.add_command(tree)
 cli.add_command(status)
 
 # Calendar commands group
-@cli.group(name="calendar")
+@cli.group(name="calendar", cls=CortexCLI)
 def calendar_group():
     """Google Calendar integration for due dates."""
     pass

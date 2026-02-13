@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from ..exceptions import ValidationError, NotFoundError, ConfigError
 from . import cli
 from ..config import (
     load_config,
@@ -70,7 +71,7 @@ def config_cmd(key: str | None, value: str | None):
                 set_verbosity(level)
                 click.echo(f"Verbosity set to {level}")
             except ValueError:
-                raise click.ClickException(f"Invalid verbosity level: {value}. Must be 0-3.")
+                raise ValidationError(f"Invalid verbosity level: {value}. Must be 0-3.")
 
     elif key == "vault":
         if value is None:
@@ -100,9 +101,9 @@ def config_cmd(key: str | None, value: str | None):
             # Set vault path
             path = Path(value).expanduser().resolve()
             if not path.exists():
-                raise click.ClickException(f"Path does not exist: {path}")
+                raise NotFoundError(f"Path does not exist: {path}")
             if not path.is_dir():
-                raise click.ClickException(f"Path is not a directory: {path}")
+                raise ValidationError(f"Path is not a directory: {path}")
             set_vault_path(path)
             click.echo(f"Vault path set to: {path}")
             click.echo(f"Config saved to: {config_file()}")
@@ -136,7 +137,7 @@ def config_cmd(key: str | None, value: str | None):
                 click.echo(click.style(f"Timezone set to: {value}", fg="green"))
                 click.echo(f"Config saved to: {config_file()}")
             except Exception as e:
-                raise click.ClickException(f"Invalid timezone: {value}. Use IANA timezone names like 'America/Argentina/Buenos_Aires'")
+                raise ValidationError(f"Invalid timezone: {value}. Use IANA timezone names like 'America/Argentina/Buenos_Aires'")
 
     elif key == "inbox":
         if value is None:
@@ -217,11 +218,11 @@ def focus(project: str | None):
         # Try fuzzy matching
         result = resolve_file_fuzzy(project, include_archived=False)
         if result is None:
-            raise click.ClickException(f"Project not found: {project}")
+            raise NotFoundError(f"Project not found: {project}")
         stem, _ = result
         # Check it's actually a project (no dots)
         if "." in stem:
-            raise click.ClickException(
+            raise ValidationError(
                 f"'{stem}' is not a project. Can only focus on top-level projects."
             )
         project = stem
