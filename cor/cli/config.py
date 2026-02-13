@@ -17,22 +17,25 @@ from ..config import (
     clear_focused_project,
     get_remote_inbox,
     set_remote_inbox,
+    get_timezone,
+    set_timezone,
 )
 from ..utils import get_notes_dir, require_init
 
 
 @cli.command(name="config")
-@click.argument("key", type=click.Choice(["verbosity", "vault", "inbox"]), required=False)
+@click.argument("key", type=click.Choice(["verbosity", "vault", "inbox", "timezone"]), required=False)
 @click.argument("value", required=False)
 def config_cmd(key: str | None, value: str | None):
     """Manage CortexPKM configuration.
 
-    View or modify global settings for verbosity, vault location, and remote inbox.
+    View or modify global settings for verbosity, vault location, timezone, and remote inbox.
 
     \b
     Configuration Keys:
       verbosity    Output detail level (0=silent, 1=normal, 2=verbose, 3=debug)
       vault        Path to your notes directory
+      timezone     Timezone for calendar events (e.g., America/Argentina/Buenos_Aires)
       inbox        Telegram bot token for mobile inbox
 
     \b
@@ -40,6 +43,7 @@ def config_cmd(key: str | None, value: str | None):
       cor config                      Show all settings
       cor config verbosity 2          Set verbose output
       cor config vault ~/my-notes     Change vault location
+      cor config timezone America/Argentina/Buenos_Aires  Set timezone
       cor config inbox <bot-token>    Configure Telegram inbox
     """
     # Show all config if no key provided
@@ -102,6 +106,37 @@ def config_cmd(key: str | None, value: str | None):
             set_vault_path(path)
             click.echo(f"Vault path set to: {path}")
             click.echo(f"Config saved to: {config_file()}")
+
+    elif key == "timezone":
+        if value is None:
+            # Show current timezone configuration
+            current_tz = get_timezone()
+            click.echo(click.style("Timezone Configuration", bold=True))
+            click.echo()
+            click.echo(f"Current timezone: {click.style(current_tz, fg='cyan', bold=True)}")
+            click.echo()
+            click.echo("This timezone is used when interpreting due dates with times")
+            click.echo("for Google Calendar sync.")
+            click.echo()
+            click.echo("Common timezones:")
+            click.echo("  America/Argentina/Buenos_Aires  (Buenos Aires)")
+            click.echo("  America/New_York                (Eastern US)")
+            click.echo("  America/Los_Angeles             (Pacific US)")
+            click.echo("  Europe/London                   (London)")
+            click.echo("  Europe/Paris                    (Paris)")
+            click.echo("  Asia/Tokyo                      (Tokyo)")
+            click.echo()
+            click.echo("Run 'cor config timezone <timezone>' to change")
+        else:
+            # Validate timezone
+            try:
+                from zoneinfo import ZoneInfo
+                ZoneInfo(value)  # Will raise if invalid
+                set_timezone(value)
+                click.echo(click.style(f"Timezone set to: {value}", fg="green"))
+                click.echo(f"Config saved to: {config_file()}")
+            except Exception as e:
+                raise click.ClickException(f"Invalid timezone: {value}. Use IANA timezone names like 'America/Argentina/Buenos_Aires'")
 
     elif key == "inbox":
         if value is None:

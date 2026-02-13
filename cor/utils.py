@@ -421,22 +421,106 @@ _TIME_KEYWORDS = {
     'night': (21, 0),
 }
 
+# Regex pattern to match time formats like "20pm", "20h", "20:00", "8pm", etc.
+# Captures hour (1-24) with optional minute, and optional am/pm/h suffix
+_TIME_PATTERN = re.compile(
+    r'\b(\d{1,2})(?::(\d{2}))?(pm|am|h)?\b',
+    re.IGNORECASE
+)
+
+
+def _extract_explicit_time(date_text: str) -> tuple[int, int] | None:
+    """Extract explicit time from text like '20pm', '20h', '8pm', '14:30'.
+    
+    Handles edge cases where users mix 24-hour format with am/pm (e.g., '20pm')
+    or use 'h' suffix (e.g., '20h'). Returns None if no valid time found.
+    
+    Skips relative time patterns like 'in 5h' which mean '5 hours from now'.
+    
+    Args:
+        date_text: The date text to extract time from
+        
+    Returns:
+        Tuple of (hour, minute) or None if no valid time found
+        
+    Examples:
+        >>> _extract_explicit_time('friday 20pm')
+        (20, 0)
+        >>> _extract_explicit_time('tomorrow 8pm')
+        (20, 0)
+        >>> _extract_explicit_time('next week 14:30')
+        (14, 30)
+        >>> _extract_explicit_time('friday 20h')
+        (20, 0)
+        >>> _extract_explicit_time('in 5h')  # relative time, skip
+        None
+    """
+    date_lower = date_text.lower()
+    
+    # Skip relative time patterns like "in 5h" (meaning "in 5 hours")
+    # These should be handled by dateparser's parse() function
+    if re.search(r'\bin\s+\d{1,2}h\b', date_lower):
+        return None
+    
+    matches = _TIME_PATTERN.findall(date_text)
+    
+    for hour_str, minute_str, suffix in matches:
+        hour = int(hour_str)
+        minute = int(minute_str) if minute_str else 0
+        suffix_lower = suffix.lower() if suffix else ''
+        
+        # Skip if hour is out of valid range
+        if hour < 1 or hour > 24:
+            continue
+            
+        # Handle am/pm suffix
+        if suffix_lower in ('pm', 'am'):
+            # Handle edge case: user wrote "20pm" (24h + pm suffix)
+            # We interpret this as 20:00 (8pm) - the pm is redundant but clear
+            if hour > 12:
+                # Already 24-hour format, pm is redundant, use hour as-is
+                pass
+            elif suffix_lower == 'pm' and hour != 12:
+                hour += 12
+            elif suffix_lower == 'am' and hour == 12:
+                hour = 0
+        
+        # 'h' suffix is just a marker (e.g., "20h" = 20:00)
+        # No adjustment needed for 'h' suffix
+        
+        # Cap at 23:59
+        if hour > 23:
+            hour = 23
+            
+        return (hour, minute)
+    
+    return None
+
 
 def _apply_time_keyword(date_text: str, parsed_date: datetime) -> datetime:
-    """Apply time from keywords (morning, afternoon, etc.) to a parsed date.
+    """Apply time from keywords (morning, afternoon, etc.) or explicit time to a parsed date.
     
     Args:
         date_text: Original date text that was parsed
         parsed_date: The datetime returned by dateparser
         
     Returns:
-        Datetime with time adjusted if a keyword was found, otherwise original
+        Datetime with time adjusted if a keyword or explicit time was found, otherwise original
     """
     date_lower = date_text.lower()
+    
+    # First check for explicit time patterns (e.g., "20pm", "8pm", "14:30")
+    explicit_time = _extract_explicit_time(date_text)
+    if explicit_time:
+        hour, minute = explicit_time
+        return parsed_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    # Then check for time keywords
     for keyword, (hour, minute) in _TIME_KEYWORDS.items():
         # Use word boundary to avoid matching "noon" inside "afternoon"
         if re.search(r'\b' + keyword + r'\b', date_lower):
             return parsed_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
     return parsed_date
 
 

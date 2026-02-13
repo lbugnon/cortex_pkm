@@ -13,9 +13,16 @@ from typing import Optional
 
 import click
 
-from ..config import get_config_path, load_config, save_config
-from ..core.notes import find_notes
+from ..config import get_config_path, load_config, save_config, get_timezone
+from ..core.notes import find_notes, _date_has_time
 from ..utils import get_notes_dir, require_init
+
+# Import zoneinfo for timezone handling (Python 3.9+)
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback for older Python versions
+    from backports.zoneinfo import ZoneInfo
 
 # Google API scopes - need full calendar access to list/create calendars
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
@@ -322,15 +329,19 @@ def sync(calendar: str):
         if existing.get("summary") != new_body.get("summary"):
             return True
         
-        # Compare dates (all-day events use 'date' field)
+        # Compare dates (all-day events use 'date' field, timed events use 'dateTime')
         existing_start = existing.get("start", {})
         new_start = new_body.get("start", {})
         if existing_start.get("date") != new_start.get("date"):
+            return True
+        if existing_start.get("dateTime") != new_start.get("dateTime"):
             return True
         
         existing_end = existing.get("end", {})
         new_end = new_body.get("end", {})
         if existing_end.get("date") != new_end.get("date"):
+            return True
+        if existing_end.get("dateTime") != new_end.get("dateTime"):
             return True
         
         # Compare extended properties (status, priority)
@@ -343,6 +354,16 @@ def sync(calendar: str):
             return True
         
         return False
+    
+    def _is_event_type_change(existing: dict, new_body: dict) -> bool:
+        """Check if we're changing from all-day to timed event or vice versa.
+        
+        Google Calendar API doesn't allow changing event type via patch,
+        so we need to delete and recreate.
+        """
+        existing_has_datetime = "dateTime" in existing.get("start", {})
+        new_has_datetime = "dateTime" in new_body.get("start", {})
+        return existing_has_datetime != new_has_datetime
     
     # Sync tasks
     created_count = 0
@@ -357,17 +378,49 @@ def sync(calendar: str):
         # Build event data
         event_summary = f"[{task.status}] {task.title}"
         
-        # Format due date as all-day event
+        # Format due date - use timed event if specific time is provided
         from datetime import date
-        if isinstance(task.due, datetime):
-            due_date = task.due.date()
-        elif isinstance(task.due, date):
-            due_date = task.due
-        else:
-            due_date = task.due
+        has_specific_time = _date_has_time(task.due)
         
-        start = {"date": due_date.strftime("%Y-%m-%d")}
-        end = {"date": due_date.strftime("%Y-%m-%d")}
+        if has_specific_time:
+            # Create a timed event (specific date and time)
+            # Google Calendar expects RFC3339 format for timed events
+            due_datetime = task.due if isinstance(task.due, datetime) else datetime.combine(task.due, datetime.min.time())
+            
+            # Get user's timezone and interpret the due date in that timezone
+            tz_name = get_timezone()
+            try:
+                user_tz = ZoneInfo(tz_name)
+            except Exception:
+                # Fallback to UTC if timezone not found
+                user_tz = timezone.utc
+            
+            # Attach the user's timezone to the naive datetime
+            if due_datetime.tzinfo is None:
+                due_datetime = due_datetime.replace(tzinfo=user_tz)
+            
+            # Convert to UTC for the API
+            due_datetime_utc = due_datetime.astimezone(timezone.utc)
+            
+            # For timed events, end time must be after start time
+            # Use 1 hour duration for due date events
+            from datetime import timedelta
+            end_datetime_utc = due_datetime_utc + timedelta(hours=1)
+            
+            # Format as RFC3339 with 'Z' suffix for UTC (Google Calendar prefers this format)
+            start = {"dateTime": due_datetime_utc.strftime("%Y-%m-%dT%H:%M:%SZ")}
+            end = {"dateTime": end_datetime_utc.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        else:
+            # Create an all-day event (date only)
+            if isinstance(task.due, datetime):
+                due_date = task.due.date()
+            elif isinstance(task.due, date):
+                due_date = task.due
+            else:
+                due_date = task.due
+            
+            start = {"date": due_date.strftime("%Y-%m-%d")}
+            end = {"date": due_date.strftime("%Y-%m-%d")}
         
         event_body = {
             "summary": event_summary,
@@ -388,8 +441,21 @@ def sync(calendar: str):
         
         try:
             if existing:
-                # Only update if something changed
-                if _event_needs_update(existing, event_body):
+                # Check if we're changing event type (all-day <-> timed)
+                # Google Calendar doesn't allow this via patch, so delete and recreate
+                if _is_event_type_change(existing, event_body):
+                    event_id = existing["id"]
+                    service.events().delete(
+                        calendarId=calendar_id,
+                        eventId=event_id,
+                    ).execute()
+                    service.events().insert(
+                        calendarId=calendar_id,
+                        body=event_body,
+                    ).execute()
+                    updated_count += 1
+                    click.echo(f"  Recreated (type changed): {task_id}")
+                elif _event_needs_update(existing, event_body):
                     event_id = existing["id"]
                     service.events().patch(
                         calendarId=calendar_id,

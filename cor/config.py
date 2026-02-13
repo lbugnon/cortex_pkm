@@ -144,3 +144,27 @@ def clear_focused_project() -> None:
     if "focused_project" in config:
         del config["focused_project"]
         save_config(config)
+
+
+# Default timezone is UTC
+default_timezone = "UTC"
+
+
+def get_timezone() -> str:
+    """Get the timezone from config (default: UTC).
+    
+    Returns timezone string like 'America/Argentina/Buenos_Aires' or 'UTC'.
+    """
+    config = load_config()
+    return config.get("timezone", default_timezone)
+
+
+def set_timezone(timezone: str) -> None:
+    """Set the timezone in config.
+    
+    Args:
+        timezone: Timezone string like 'America/Argentina/Buenos_Aires'
+    """
+    config = load_config()
+    config["timezone"] = timezone
+    save_config(config)

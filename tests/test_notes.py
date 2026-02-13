@@ -330,3 +330,150 @@ class TestParseHelpers:
             os.chmod(broken_file, 0o644)
 
 
+class TestDateParsing:
+    """Test date parsing with time support."""
+
+    def test_parse_date_only_format(self):
+        """Test parsing date-only format (YYYY-MM-DD)."""
+        from cor.core.notes import _parse_date, _date_has_time
+        
+        result = _parse_date("2024-12-31")
+        
+        assert isinstance(result, datetime)
+        assert result.year == 2024
+        assert result.month == 12
+        assert result.day == 31
+        assert result.hour == 0
+        assert result.minute == 0
+        assert _date_has_time(result) is False
+
+    def test_parse_datetime_format(self):
+        """Test parsing datetime format (YYYY-MM-DD HH:MM)."""
+        from cor.core.notes import _parse_date, _date_has_time
+        
+        result = _parse_date("2024-12-31 14:30")
+        
+        assert isinstance(result, datetime)
+        assert result.year == 2024
+        assert result.month == 12
+        assert result.day == 31
+        assert result.hour == 14
+        assert result.minute == 30
+        assert _date_has_time(result) is True
+
+    def test_parse_midnight_no_time(self):
+        """Test that midnight is treated as date-only (no specific time)."""
+        from cor.core.notes import _parse_date, _date_has_time
+        
+        result = _parse_date("2024-12-31 00:00")
+        
+        assert isinstance(result, datetime)
+        assert _date_has_time(result) is False
+
+    def test_parse_datetime_objects(self):
+        """Test that datetime objects are passed through."""
+        from cor.core.notes import _parse_date
+        
+        original = datetime(2024, 12, 31, 14, 30)
+        result = _parse_date(original)
+        
+        assert result is original
+
+    def test_parse_date_object(self):
+        """Test that date objects are converted to datetime."""
+        from cor.core.notes import _parse_date
+        
+        original = date(2024, 12, 31)
+        result = _parse_date(original)
+        
+        assert isinstance(result, datetime)
+        assert result.year == 2024
+        assert result.month == 12
+        assert result.day == 31
+        assert result.hour == 0
+        assert result.minute == 0
+
+    def test_parse_none(self):
+        """Test that None returns None."""
+        from cor.core.notes import _parse_date
+        
+        result = _parse_date(None)
+        
+        assert result is None
+
+    def test_parse_invalid(self):
+        """Test that invalid strings return None."""
+        from cor.core.notes import _parse_date
+        
+        result = _parse_date("not-a-date")
+        
+        assert result is None
+
+    def test_due_date_with_time_in_note(self, tmp_path):
+        """Test parsing a note with due date including time."""
+        note_file = tmp_path / "timed_task.md"
+        note_file.write_text("""---
+type: task
+status: active
+due: 2024-12-31 14:30
+---
+
+# Timed Task
+
+This task has a specific due time.
+""")
+        
+        metadata = NoteMetadata.from_file(note_file)
+        
+        assert isinstance(metadata.due, datetime)
+        assert metadata.due.hour == 14
+        assert metadata.due.minute == 30
+
+
+class TestTimezoneConfig:
+    """Test timezone configuration."""
+
+    def test_default_timezone_is_utc(self):
+        """Test that default timezone is UTC."""
+        from cor.config import get_timezone, default_timezone
+        
+        # When no timezone is set, should return default
+        assert default_timezone == "UTC"
+
+    def test_set_and_get_timezone(self, tmp_path, monkeypatch):
+        """Test setting and getting timezone."""
+        from cor.config import set_timezone, get_timezone, _config_dir
+        
+        # Mock config dir to use temp path
+        monkeypatch.setattr("cor.config._config_dir", lambda: tmp_path)
+        
+        # Set a timezone
+        set_timezone("America/Argentina/Buenos_Aires")
+        
+        # Get should return what we set
+        assert get_timezone() == "America/Argentina/Buenos_Aires"
+
+    def test_timezone_conversion_for_calendar(self):
+        """Test timezone conversion logic for calendar events."""
+        from datetime import datetime, timezone
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        
+        # Simulate user in Buenos Aires setting due: 2026-01-26 20:00
+        user_tz = ZoneInfo("America/Argentina/Buenos_Aires")
+        due_datetime = datetime(2026, 1, 26, 20, 0)
+        
+        # Attach timezone and convert to UTC
+        due_datetime_local = due_datetime.replace(tzinfo=user_tz)
+        due_datetime_utc = due_datetime_local.astimezone(timezone.utc)
+        
+        # Buenos Aires is UTC-3, so 20:00 BA = 23:00 UTC
+        assert due_datetime_utc.hour == 23
+        assert due_datetime_utc.day == 26
+        
+        # Verify RFC3339 format
+        rfc3339 = due_datetime_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        assert rfc3339 == "2026-01-26T23:00:00Z"
+
