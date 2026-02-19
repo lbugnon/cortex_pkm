@@ -172,6 +172,29 @@ tags: [coding, urgent]
 | `cor maintenance sync` | Manually run archive/status sync |
 | `cor search <query>` | Full-text content search (supports filters: `status:`, `#tag`, `project:`) |
 
+### Bulk Operations
+
+Perform operations on multiple files at once using glob patterns:
+
+```bash
+# Bulk status update
+cor mark "project.*" done              # Mark all project tasks as done
+cor mark "project.group.*" active      # Mark group tasks as active
+cor mark -s done "project.*"           # Alternative syntax with --status flag
+
+# Bulk move/rename  
+cor move "project.old-*" "project.new-*"    # Rename matching tasks
+cor move "p1.*" "p2.*"                        # Move all tasks to different project
+cor move "*.old.*" "*.new.*" --dry-run        # Preview changes without applying
+```
+
+**Pattern wildcards:**
+- `*` matches any sequence of characters
+- `?` matches a single character
+- `[abc]` matches any character in brackets
+
+**Confirmation:** Operations affecting more than 3 files require confirmation. Use `--dry-run` to preview changes first.
+
 ### Search
 
 Full-text content search using ripgrep (fast, no indexing required):

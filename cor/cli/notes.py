@@ -2,6 +2,7 @@
 
 import re
 import shutil
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -414,14 +415,15 @@ def delete(archived: bool, name: str):
 
 @cli.command()
 @click.option("--archived", "-a", is_flag=True, is_eager=True, help="Include archived files in search")
+@click.option("--status", "-s", "status_option", type=str, help="New status value (alternative positional arg)")
 @click.argument("name", shell_complete=complete_task_name)
-@click.argument("status", shell_complete=complete_task_status)
+@click.argument("status", shell_complete=complete_task_status, required=False)
 @click.argument("text", nargs=-1, type=str)
 @require_init
-def mark(archived: bool, name: str, status: str, text: str | None):
+def mark(archived: bool, status_option: str | None, name: str, status: str | None, text: tuple[str, ...]):
     """Update task status.
 
-    Supports fuzzy matching for task names.
+    Supports fuzzy matching for task names and glob patterns for bulk updates.
 
     \b
     Status values:
@@ -434,18 +436,46 @@ def mark(archived: bool, name: str, status: str, text: str | None):
 
     \b
     Examples:
-      cor mark impl active          # Fuzzy matches 'implement-api'
-      cor mark my-project.research done
-      cor mark -a old-task todo     # Search archived tasks too
+      cor mark impl active                    # Fuzzy matches 'implement-api'
+      cor mark my-project.research done       # Specific task
+      cor mark -a old-task todo               # Search archived tasks too
+      cor mark "project.*" done               # Bulk: mark all project tasks done
+      cor mark -s done "project.*"            # Alternative: --status before pattern
+      cor mark project.group.* active         # Bulk: mark group tasks active
     """
+    from fnmatch import fnmatch
+    from ..utils import is_glob_pattern, expand_glob_to_stems
+
     notes_dir = get_notes_dir()
+
+    # Determine the actual status value (from --status option or positional arg)
+    actual_status = status_option or status
+    
+    # Handle case where name might be the pattern and status is in the option
+    if actual_status is None:
+        raise ValidationError(
+            "Status is required. Usage: cor mark <task> <status> or cor mark -s <status> <task>"
+        )
+    
+    # Validate status
+    if actual_status not in VALID_TASK_STATUS:
+        raise ValidationError(
+            f"Invalid status '{actual_status}'. "
+            f"Valid: {', '.join(sorted(VALID_TASK_STATUS))}"
+        )
 
     # Handle archive/ prefix from tab completion
     if name.startswith("archive/"):
         name = name[8:]
         archived = True
 
-    # Use task-specific fuzzy matching with focus prioritization
+    # Check if name is a glob pattern
+    if is_glob_pattern(name):
+        # Bulk operation using glob pattern
+        _mark_bulk(name, actual_status, text, notes_dir, archived)
+        return
+
+    # Single file operation with fuzzy matching
     focused = get_focused_project()
     result = resolve_task_fuzzy(name, include_archived=archived, focused_project=focused)
 
@@ -467,24 +497,107 @@ def mark(archived: bool, name: str, status: str, text: str | None):
             "This command only works with tasks."
         )
 
-    if status not in VALID_TASK_STATUS:
-        raise ValidationError(
-            f"Invalid status '{status}'. "
-            f"Valid: {', '.join(sorted(VALID_TASK_STATUS))}"
-        )
+    _update_task_status(file_path, note, actual_status, text, notes_dir)
 
-    # Validate: task groups and projects cannot be marked done/dropped if children are incomplete
+
+def _mark_bulk(pattern: str, status: str, text: tuple[str, ...], notes_dir: Path, include_archive: bool):
+    """Mark multiple tasks matching a glob pattern.
+    
+    Args:
+        pattern: Glob pattern to match tasks
+        status: New status value
+        text: Optional text to append
+        notes_dir: Path to notes directory
+        include_archive: Whether to include archived files
+    """
+    from ..utils import expand_glob_pattern
+    
+    # Find all matching task files
+    matching_files = expand_glob_pattern(pattern, notes_dir, include_archive)
+    
+    # Filter to only tasks (not projects or notes)
+    task_files = []
+    for file_path in matching_files:
+        note = parse_metadata(file_path)
+        if note and note.note_type == "task":
+            task_files.append((file_path, note))
+    
+    if not task_files:
+        raise NotFoundError(f"No tasks match pattern: {pattern}")
+    
+    # Confirm bulk operation if more than 3 files
+    if len(task_files) > 3:
+        click.echo(f"Will update {len(task_files)} tasks to '{status}':")
+        for file_path, note in task_files[:5]:
+            click.echo(f"  - {file_path.stem} ({note.status or 'none'} → {status})")
+        if len(task_files) > 5:
+            click.echo(f"  ... and {len(task_files) - 5} more")
+        
+        # In non-interactive mode, auto-continue; otherwise prompt
+        if sys.stdin.isatty():
+            if not click.confirm("Continue?"):
+                click.echo("Cancelled.")
+                return
+        else:
+            click.echo("Non-interactive mode: proceeding with update.")
+    
+    # Update each task
+    updated_count = 0
+    error_count = 0
+    files_to_sync = []
+    
+    for file_path, note in task_files:
+        try:
+            _update_task_status(file_path, note, status, text, notes_dir, display=False)
+            files_to_sync.append(str(file_path))
+            updated_count += 1
+        except ValidationError as e:
+            click.secho(f"  Skipped {file_path.stem}: {e}", fg="yellow")
+            error_count += 1
+        except Exception as e:
+            click.secho(f"  Error {file_path.stem}: {e}", fg="red")
+            error_count += 1
+    
+    # Run sync for all updated files
+    if files_to_sync:
+        runner = MaintenanceRunner(notes_dir)
+        runner.sync(files_to_sync)
+    
+    # Summary
+    symbol = STATUS_SYMBOLS.get(status, "")
+    click.echo(f"\n{symbol} Updated {updated_count} task(s) to {click.style(status, bold=True)}")
+    if error_count:
+        click.echo(f"  ({error_count} skipped due to errors)")
+
+
+def _update_task_status(
+    file_path: Path, 
+    note, 
+    status: str, 
+    text: tuple[str, ...], 
+    notes_dir: Path,
+    display: bool = True
+):
+    """Update the status of a single task file.
+    
+    Args:
+        file_path: Path to the task file
+        note: Parsed note object
+        status: New status value
+        text: Optional text to append
+        notes_dir: Path to notes directory
+        display: Whether to display status update
+    """
+    # Validate: task groups cannot be marked done/dropped if children are incomplete
     if status in ("done", "dropped"):
         runner = MaintenanceRunner(notes_dir)
         task_name = note.path.stem
         incomplete = runner.get_incomplete_tasks(task_name)
         
         if incomplete:
-            note_type = note.note_type
-            if note_type == "task":
-                raise ValidationError(
-                    f"Cannot mark task group as {status}. Incomplete tasks: {', '.join(incomplete)}"
-                )
+            raise ValidationError(
+                f"Cannot mark as {status} - has incomplete subtasks: {', '.join(incomplete)}"
+            )
 
     # Load and update frontmatter
     post = frontmatter.load(file_path)
@@ -492,6 +605,7 @@ def mark(archived: bool, name: str, status: str, text: str | None):
     if 'status' not in post.metadata:
         raise ValidationError("Could not find status field in frontmatter")
 
+    old_status = post.get('status', 'none')
     post['status'] = status
 
     # If status is waiting, add a due date of 1 day
@@ -501,26 +615,23 @@ def mark(archived: bool, name: str, status: str, text: str | None):
 
     # Append text if provided
     if text:
-        text = " ".join(text)
-        # Add text to the content
-        post.content = post.content.rstrip() + f"\n{text}"
+        text_str = " ".join(text)
+        post.content = post.content.rstrip() + f"\n{text_str}"
 
     with open(file_path, 'wb') as f:
         frontmatter.dump(post, f, sort_keys=False)
 
-    # Run sync for immediate feedback
-    runner = MaintenanceRunner(notes_dir)
-    runner.sync([str(file_path)])
+    # Run sync for immediate feedback (for single file) or batch (for bulk)
+    if display:
+        runner = MaintenanceRunner(notes_dir)
+        runner.sync([str(file_path)])
 
-    # Status display
-    old_status = note.status or "none"
-    symbol = STATUS_SYMBOLS.get(status, "")
-    location = ""
-
-    click.echo(f"{symbol} {note.title}: {old_status} → {click.style(status, bold=True)}{location}")
-    
-    if text:
-        click.echo(f"  Added note: {text}")
+        # Status display
+        symbol = STATUS_SYMBOLS.get(status, "")
+        click.echo(f"{symbol} {note.title}: {old_status} → {click.style(status, bold=True)}")
+        
+        if text:
+            click.echo(f"  Added note: {' '.join(text)}")
 
 
 @cli.command()
