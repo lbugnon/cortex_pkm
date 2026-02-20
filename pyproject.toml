@@ -38,6 +38,7 @@ dependencies = [
     "google-auth-httplib2>=0.1",
     "google-api-python-client>=2.0",
     "ripgrepy>=2.0",  # Python wrapper for ripgrep binary
+    "textual>=0.50.0",
 ]
 
 [project.urls]

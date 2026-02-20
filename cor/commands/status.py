@@ -1037,13 +1037,27 @@ def weekly(weeks: int, verbose: bool, tag: str | None):
 @click.option("--depth", "-d", type=int, default=None, help="Maximum depth to display (default: unlimited)")
 @click.option("--sort", "-s", type=click.Choice(["status", "alphabetical"]), default="status",
               help="Sort tasks by status (default) or alphabetically")
+@click.option("--interactive", "-i", is_flag=True, help="Interactive mode (vim keys to navigate and edit)")
 @click.argument("focus", shell_complete=complete_existing_name)
 @require_init
-def tree(verbose: bool, depth: int | None, sort: str, focus: str):
+def tree(verbose: bool, depth: int | None, sort: str, interactive: bool, focus: str):
     """Show task tree for a project or task group.
 
     Displays tasks in a tree view with [x] or [ ] indicating status.
     Can focus on a project or a specific task group for detailed views.
+
+    \b
+    Interactive mode (-i/--interactive):
+      j/k        Navigate up/down
+      x          Mark as done
+      o          Mark as blocked  
+      .          Mark as active
+      /          Mark as waiting
+      ~          Mark as dropped
+      backspace  Mark as todo
+      e          Edit in $EDITOR
+      q          Quit
+      ?          Toggle help
 
     \b
     Examples:
@@ -1052,8 +1066,16 @@ def tree(verbose: bool, depth: int | None, sort: str, focus: str):
       cor tree myproject -v                # Show descriptions
       cor tree myproject --depth 2         # Limit to 2 levels
       cor tree myproject -s alphabetical   # Sort tasks alphabetically
+      cor tree myproject -i                # Interactive mode
     """
     notes_dir = get_notes_dir()
+    
+    # Launch interactive mode if requested
+    if interactive:
+        from ..tui.tree_app import ProjectTreeApp
+        app = ProjectTreeApp(focus, notes_dir, verbose=verbose, sort=sort)
+        app.run()
+        return
 
     # Try to find the focus file (project, task group, or task)
     focus_path = notes_dir / f"{focus}.md"
