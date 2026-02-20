@@ -184,6 +184,41 @@ def format_title(name: str) -> str:
     return title[0].upper() + title[1:] if title else title
 
 
+def read_h1(path: Path) -> str | None:
+    """Read the first H1 heading from a markdown file.
+
+    Returns the title string (without the leading '# ') or None if not found.
+    """
+    try:
+        content = path.read_text()
+    except OSError:
+        return None
+    in_frontmatter = False
+    frontmatter_done = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not frontmatter_done:
+            if stripped == "---":
+                in_frontmatter = not in_frontmatter
+                if not in_frontmatter:
+                    frontmatter_done = True
+                continue
+            if in_frontmatter:
+                continue
+        if line.startswith("# "):
+            return line[2:].strip()
+    return None
+
+
+def title_to_stem(title: str) -> str:
+    """Convert a human-readable title back to a filename stem (reverse of format_title).
+
+    Examples: "Auth fix" -> "auth_fix", "Fix-bug" -> "fix-bug"
+    """
+    slug = title.lower().replace(" ", "_")
+    return re.sub(r'[^\w-]', '', slug).strip("_-")
+
+
 def render_template(
     template: str, name: str, parent: str | None = None, parent_title: str | None = None,
     message: str | None = None

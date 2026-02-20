@@ -26,6 +26,8 @@ from ..utils import (
     log_info,
     log_verbose,
     parse_natural_language_text,
+    read_h1,
+    title_to_stem,
 )
 from ..completions import complete_name, complete_task_name, complete_task_status, complete_existing_name
 from ..search import resolve_file_fuzzy, get_file_path, resolve_task_fuzzy
@@ -302,7 +304,19 @@ def edit(archived: bool, name: str):
     stem, is_archived = result
     file_path = get_file_path(stem, is_archived)
 
+    h1_before = read_h1(file_path)
     open_in_editor(file_path)
+    h1_after = read_h1(file_path)
+
+    if h1_after and h1_after != h1_before:
+        old_leaf = stem.split(".")[-1]
+        new_leaf = title_to_stem(h1_after)
+        if new_leaf and new_leaf != old_leaf and h1_after.lower() != format_title(old_leaf).lower():
+            new_stem = ".".join(stem.split(".")[:-1] + [new_leaf]) if "." in stem else new_leaf
+            from ..commands.refactor import rename as rename_cmd
+            ctx = click.get_current_context()
+            ctx.invoke(rename_cmd, old_name=stem, new_name=new_stem, archived=is_archived, dry_run=False)
+            click.echo(click.style(f"Renamed \u2192 {new_stem}", fg="cyan"))
 
 
 @cli.command()

@@ -365,6 +365,97 @@ def hooks_uninstall():
     _uninstall_pre_commit_hook()
 
 
+@maintenance.command("check-titles")
+@click.option("--fix", is_flag=True, help="Rewrite H1 headings in place to match filename stem")
+@click.option("--archived", "-a", is_flag=True, help="Include archived notes in the scan")
+@require_init
+def maintenance_check_titles(fix: bool, archived: bool):
+    """Check that H1 headings match their filename stems.
+
+    Scans notes and reports any mismatch between the H1 heading and the
+    title derived from the filename (format_title of the leaf stem).
+
+    With --fix, rewrites H1 headings in place (filename → H1 direction, safe).
+
+    \b
+    Examples:
+        cor maintenance check-titles
+        cor maintenance check-titles --fix
+        cor maintenance check-titles -a --fix
+    """
+    from ..utils import format_title, read_h1
+
+    notes_dir = get_notes_dir()
+    archive_dir = notes_dir / "archive"
+
+    # Collect files to check
+    files: list[Path] = [
+        p for p in notes_dir.glob("*.md")
+        if p.stem not in ("root", "backlog")
+    ]
+    if archived and archive_dir.exists():
+        files.extend(archive_dir.glob("*.md"))
+
+    mismatches: list[tuple[Path, str, str]] = []
+
+    for file_path in sorted(files):
+        leaf = file_path.stem.split(".")[-1]
+        expected = format_title(leaf)
+        actual = read_h1(file_path)
+        if actual is None:
+            continue
+        if actual != expected:
+            mismatches.append((file_path, actual, expected))
+
+    if not mismatches:
+        click.echo(click.style("All titles match.", fg="green"))
+        return
+
+    if not fix:
+        click.echo(f"Found {len(mismatches)} title mismatch(es):\n")
+        for file_path, actual, expected in mismatches:
+            stem = file_path.stem
+            click.echo(
+                f"  {click.style(stem, bold=True)}"
+                f"  H1: {click.style(repr(actual), fg='yellow')}"
+                f"  expected: {click.style(repr(expected), fg='cyan')}"
+            )
+        click.echo(
+            f"\nRun with --fix to rewrite H1 headings to match filenames."
+        )
+        return
+
+    # Fix mode: rewrite H1 in place
+    fixed = 0
+    for file_path, actual, expected in mismatches:
+        content = file_path.read_text()
+        lines = content.splitlines(keepends=True)
+        in_frontmatter = False
+        frontmatter_done = False
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not frontmatter_done:
+                if stripped == "---":
+                    in_frontmatter = not in_frontmatter
+                    if not in_frontmatter:
+                        frontmatter_done = True
+                    continue
+                if in_frontmatter:
+                    continue
+            if line.startswith("# "):
+                lines[i] = f"# {expected}\n"
+                file_path.write_text("".join(lines))
+                click.echo(
+                    f"  Fixed: {file_path.stem}  "
+                    f"{click.style(repr(actual), fg='yellow')} → "
+                    f"{click.style(repr(expected), fg='cyan')}"
+                )
+                fixed += 1
+                break
+
+    click.echo(click.style(f"\nFixed {fixed} file(s).", fg="green"))
+
+
 # rename command is defined in commands.refactor module and registered via register_additional_commands()
 
 
