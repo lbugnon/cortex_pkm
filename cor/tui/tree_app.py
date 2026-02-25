@@ -103,9 +103,9 @@ class ProjectTreeApp(App):
     }
 
     Tree > .tree--cursor {
-        background: $surface;
+        background: $primary-darken-2;
         color: $text;
-        text-style: none;
+        text-style: bold;
     }
 
     Tree > .tree--highlight {
@@ -343,7 +343,15 @@ class ProjectTreeApp(App):
             self.notify("Not a task", severity="warning")
             return
 
-        next_stem = self._get_next_task_stem()
+        # Determine where to move cursor after status change
+        if new_status in ("done", "dropped"):
+            # For terminal statuses, try next task first, then previous
+            next_stem = self._get_next_task_stem()
+            prev_stem = self._get_prev_task_stem() if not next_stem else None
+            preserve = next_stem or prev_stem
+        else:
+            # For non-terminal statuses, stay on the same task
+            preserve = task.stem
 
         try:
             if note:
@@ -358,7 +366,6 @@ class ProjectTreeApp(App):
                 self.notify(f"Error: {result.stderr}", severity="error")
                 return
 
-            preserve = next_stem if new_status in ("done", "dropped") and next_stem else task.stem
             self._load_data()
             self._populate_tree(preserve_cursor_stem=preserve)
             self.query_one("#header", Static).update(self._header_text())
@@ -446,6 +453,19 @@ class ProjectTreeApp(App):
             return sib.data.stem
         if current.parent:
             sib = current.parent.next_sibling
+            if sib and isinstance(sib.data, TaskNode):
+                return sib.data.stem
+        return None
+
+    def _get_prev_task_stem(self) -> str | None:
+        current = self.query_one(Tree).cursor_node
+        if not current:
+            return None
+        sib = current.previous_sibling
+        if sib and isinstance(sib.data, TaskNode):
+            return sib.data.stem
+        if current.parent:
+            sib = current.parent.previous_sibling
             if sib and isinstance(sib.data, TaskNode):
                 return sib.data.stem
         return None
