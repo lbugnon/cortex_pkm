@@ -259,32 +259,32 @@ def rename(archived: bool, dry_run: bool, old_name: str, new_name: str):
             new_base = new_parts[-1] if new_parts else new_stem
             new_title = format_title(new_base)
 
-            # Update backlinks with title: [< Old Title](old) → [< New Title](new)
-            # Match flexible whitespace: [< ... ](old_stem) where ... is any text
-            backlink_pattern = rf'\[<\s+[^\]]*\]\({re.escape(old_stem)}\)'
+            # Update backlinks with title: [< Old Title](old.md) → [< New Title](new.md)
+            # Match flexible whitespace: [< ... ](old_stem.md) where ... is any text
+            backlink_pattern = rf'\[<\s+[^\]]*\]\({re.escape(old_stem)}\.md\)'
             if re.search(backlink_pattern, content):
-                content = re.sub(backlink_pattern, rf'[< {new_title}]({new_stem})', content)
+                content = re.sub(backlink_pattern, rf'[< {new_title}]({new_stem}.md)', content)
                 updates.append(f"[< ...] → [< {new_title}]")
 
-            # Update archive backlinks: [< Old Title](../old) → [< New Title](../new)
-            archive_backlink_pattern = rf'\[<\s+[^\]]*\]\(../{re.escape(old_stem)}\)'
+            # Update archive backlinks: [< Old Title](../old.md) → [< New Title](../new.md)
+            archive_backlink_pattern = rf'\[<\s+[^\]]*\]\(\.\./{re.escape(old_stem)}\.md\)'
             if re.search(archive_backlink_pattern, content):
-                content = re.sub(archive_backlink_pattern, rf'[< {new_title}](../{new_stem})', content)
+                content = re.sub(archive_backlink_pattern, rf'[< {new_title}](../{new_stem}.md)', content)
                 updates.append(f"[< ...] (archive) → [< {new_title}] (archive)")
 
-            # Update regular links: [Title](filename) → [Title](new_filename)
+            # Update regular links: [Title](filename.md) → [Title](new_filename.md)
             # But skip backlinks (those starting with <)
-            pattern = rf'\[(?<!<\s)([^\]]+)\]\({re.escape(old_stem)}\)'
+            pattern = rf'\[(?<!<\s)([^\]]+)\]\({re.escape(old_stem)}\.md\)'
             if re.search(pattern, content):
-                content = re.sub(pattern, rf'[\1]({new_stem})', content)
-                updates.append(f"({old_stem}) → ({new_stem})")
+                content = re.sub(pattern, rf'[\1]({new_stem}.md)', content)
+                updates.append(f"({old_stem}.md) → ({new_stem}.md)")
 
-            # Update archive links: [Title](archive/filename) → [Title](archive/new_filename)
+            # Update archive links: [Title](archive/filename.md) → [Title](archive/new_filename.md)
             # But skip backlinks
-            pattern = rf'\[(?<!<\s)([^\]]+)\]\(archive/{re.escape(old_stem)}\)'
+            pattern = rf'\[(?<!<\s)([^\]]+)\]\(archive/{re.escape(old_stem)}\.md\)'
             if re.search(pattern, content):
-                content = re.sub(pattern, rf'[\1](archive/{new_stem})', content)
-                updates.append(f"(archive/{old_stem}) → (archive/{new_stem})")
+                content = re.sub(pattern, rf'[\1](archive/{new_stem}.md)', content)
+                updates.append(f"(archive/{old_stem}.md) → (archive/{new_stem}.md)")
 
         if content != original_content:
             file_path.write_text(content)
@@ -322,13 +322,13 @@ def rename(archived: bool, dry_run: bool, old_name: str, new_name: str):
 
                 # Update reverse link with proper title format
                 # Match any link text to the old parent and replace with new parent link and title
-                pattern = rf'\[([^\]]*)\]\({re.escape(old_parent)}\)'
+                pattern = rf'\[([^\]]*)\]\({re.escape(old_parent)}\.md\)'
                 if re.search(pattern, content):
-                    content = re.sub(pattern, rf'[< {new_parent_title}]({new_parent})', content)
+                    content = re.sub(pattern, rf'[< {new_parent_title}]({new_parent}.md)', content)
 
-                pattern = rf'\[([^\]]*)\]\(archive/{re.escape(old_parent)}\)'
+                pattern = rf'\[([^\]]*)\]\(archive/{re.escape(old_parent)}\.md\)'
                 if re.search(pattern, content):
-                    content = re.sub(pattern, rf'[< {new_parent_title}](archive/{new_parent})', content)
+                    content = re.sub(pattern, rf'[< {new_parent_title}](archive/{new_parent}.md)', content)
 
         if content != original_content:
             new_path.write_text(content)
@@ -494,17 +494,17 @@ def group(group: str, tasks: tuple):
             old_stem = old_path.stem
             new_stem = new_path.stem
 
-            # Update links: [Title](filename) → [Title](new_filename)
-            pattern = rf'\[([^\]]+)\]\({re.escape(old_stem)}\)'
+            # Update links: [Title](filename.md) → [Title](new_filename.md)
+            pattern = rf'\[([^\]]+)\]\({re.escape(old_stem)}\.md\)'
             if re.search(pattern, content):
-                content = re.sub(pattern, rf'[\1]({new_stem})', content)
-                updates.append(f"({old_stem}) → ({new_stem})")
+                content = re.sub(pattern, rf'[\1]({new_stem}.md)', content)
+                updates.append(f"({old_stem}.md) → ({new_stem}.md)")
 
             # Update archive links
-            pattern = rf'\[([^\]]+)\]\(archive/{re.escape(old_stem)}\)'
+            pattern = rf'\[([^\]]+)\]\(archive/{re.escape(old_stem)}\.md\)'
             if re.search(pattern, content):
-                content = re.sub(pattern, rf'[\1](archive/{new_stem})', content)
-                updates.append(f"(archive/{old_stem}) → (archive/{new_stem})")
+                content = re.sub(pattern, rf'[\1](archive/{new_stem}.md)', content)
+                updates.append(f"(archive/{old_stem}.md) → (archive/{new_stem}.md)")
 
         if content != original_content:
             file_path.write_text(content)
@@ -528,10 +528,10 @@ def group(group: str, tasks: tuple):
             flags=re.MULTILINE
         )
 
-        # Update reverse link: [< Project Title](project) → [< Group Title](group)
+        # Update reverse link: [< Project Title](project.md) → [< Group Title](group.md)
         content = re.sub(
-            rf'\[< [^\]]+\]\({re.escape(project)}\)',
-            f'[< {group_title}]({group})',
+            rf'\[< [^\]]+\]\({re.escape(project)}\.md\)',
+            f'[< {group_title}]({group}.md)',
             content
         )
 
@@ -555,7 +555,7 @@ def group(group: str, tasks: tuple):
         new_stem = new_path.stem
         # Remove task entries (links already point to new paths after update step)
         project_content = re.sub(
-            rf'^- \[[^\]]*\] \[[^\]]+\]\({re.escape(new_stem)}\)\n',
+            rf'^- \[[^\]]*\] \[[^\]]+\]\({re.escape(new_stem)}\.md\)\n',
             '',
             project_content,
             flags=re.MULTILINE
@@ -872,27 +872,27 @@ def _update_links_for_renames(renames: list[tuple[Path, Path]], notes_dir: Path)
             new_title = format_title(new_base)
             
             # Update backlinks
-            backlink_pattern = rf'\[<\s+[^\]]*\]\({re.escape(old_stem)}\)'
+            backlink_pattern = rf'\[<\s+[^\]]*\]\({re.escape(old_stem)}\.md\)'
             if re.search(backlink_pattern, content):
-                content = re.sub(backlink_pattern, rf'[< {new_title}]({new_stem})', content)
+                content = re.sub(backlink_pattern, rf'[< {new_title}]({new_stem}.md)', content)
                 has_changes = True
-            
+
             # Update archive backlinks
-            archive_backlink_pattern = rf'\[<\s+[^\]]*\]\(../{re.escape(old_stem)}\)'
+            archive_backlink_pattern = rf'\[<\s+[^\]]*\]\(\.\./{re.escape(old_stem)}\.md\)'
             if re.search(archive_backlink_pattern, content):
-                content = re.sub(archive_backlink_pattern, rf'[< {new_title}](../{new_stem})', content)
+                content = re.sub(archive_backlink_pattern, rf'[< {new_title}](../{new_stem}.md)', content)
                 has_changes = True
-            
+
             # Update regular links (not backlinks)
-            link_pattern = rf'\[(?<!\<\s)([^\]]+)\]\({re.escape(old_stem)}\)'
+            link_pattern = rf'\[(?<!\<\s)([^\]]+)\]\({re.escape(old_stem)}\.md\)'
             if re.search(link_pattern, content):
-                content = re.sub(link_pattern, rf'[\1]({new_stem})', content)
+                content = re.sub(link_pattern, rf'[\1]({new_stem}.md)', content)
                 has_changes = True
-            
+
             # Update archive links
-            archive_link_pattern = rf'\[(?<!\<\s)([^\]]+)\]\(archive/{re.escape(old_stem)}\)'
+            archive_link_pattern = rf'\[(?<!\<\s)([^\]]+)\]\(archive/{re.escape(old_stem)}\.md\)'
             if re.search(archive_link_pattern, content):
-                content = re.sub(archive_link_pattern, rf'[\1](archive/{new_stem})', content)
+                content = re.sub(archive_link_pattern, rf'[\1](archive/{new_stem}.md)', content)
                 has_changes = True
         
         if has_changes:

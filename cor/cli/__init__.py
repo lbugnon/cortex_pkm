@@ -221,7 +221,7 @@ def _uninstall_pre_commit_hook() -> None:
 # Import and register all commands
 from .init import init, example_vault
 from .config import config_cmd, focus, inbox_cmd
-from .notes import new, edit, tag, delete, mark, expand
+from .notes import new, edit, tag, delete, mark, expand, link
 from .maintenance import sync, maintenance, hooks
 from ..commands.refactor import rename, group
 from ..commands.process import process
@@ -247,6 +247,7 @@ cli.add_command(delete)
 cli.add_command(delete, name="del")  # Alias
 cli.add_command(mark)
 cli.add_command(expand)
+cli.add_command(link)
 cli.add_command(sync)
 cli.add_command(maintenance)
 cli.add_command(hooks)

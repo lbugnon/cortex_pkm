@@ -77,7 +77,7 @@ parent: {parent}
 ---
 # {name}
 
-[< {parent_title}]({parent})
+{parent_link}
 
 ## Description
 """)
@@ -142,9 +142,9 @@ status: active
 Test project
 
 ## Tasks
-- [ ] [Task 1](myproject.task1)
-- [ ] [Task 2](myproject.task2)
-- [ ] [Task 3](myproject.task3)
+- [ ] [Task 1](myproject.task1.md)
+- [ ] [Task 2](myproject.task2.md)
+- [ ] [Task 3](myproject.task3.md)
 """)
 
     # Create tasks
@@ -161,7 +161,7 @@ parent: myproject
 ---
 # Task {i}
 
-[< My Project](myproject)
+[< My Project](myproject.md)
 
 ## Description
 Task {i} description
@@ -200,7 +200,7 @@ status: active
 # My Project
 
 ## Tasks
-- [ ] [Group](myproject.group)
+- [ ] [Group](myproject.group.md)
 """)
 
     # Create group (task with children)
@@ -215,11 +215,11 @@ parent: myproject
 ---
 # Group
 
-[< My Project](myproject)
+[< My Project](myproject.md)
 
 ## Tasks
-- [ ] [Subtask 1](myproject.group.subtask1)
-- [ ] [Subtask 2](myproject.group.subtask2)
+- [ ] [Subtask 1](myproject.group.subtask1.md)
+- [ ] [Subtask 2](myproject.group.subtask2.md)
 """)
 
     # Create subtasks
@@ -236,7 +236,7 @@ parent: myproject.group
 ---
 # Subtask {i}
 
-[< Group](myproject.group)
+[< Group](myproject.group.md)
 
 ## Description
 Subtask {i} description
@@ -304,9 +304,10 @@ def get_task_checkbox(parent_path: Path, task_name: str) -> str | None:
     """Extract the checkbox symbol for a task in a parent file.
 
     Returns the checkbox character (space, x, ., o, ~) or None if not found.
+    task_name should be the stem without .md extension.
     """
     import re
     content = parent_path.read_text()
-    pattern = rf"- \[([x .o~])\] \[[^\]]+\]\((?:archive/)?{re.escape(task_name)}\)"
+    pattern = rf"- \[([x .o~])\] \[[^\]]+\]\((?:archive/)?{re.escape(task_name)}\.md\)"
     match = re.search(pattern, content)
     return match.group(1) if match else None

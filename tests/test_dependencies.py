@@ -56,8 +56,8 @@ requires: []
 # Project 1
 
 ## Tasks
-- [ ] [Task 1](project1.task1)
-- [ ] [Task 2](project1.task2)
+- [ ] [Task 1](project1.task1.md)
+- [ ] [Task 2](project1.task2.md)
 """)
 
     (temp_vault / "project1.task1.md").write_text(f"""\
@@ -71,7 +71,7 @@ requires: []
 ---
 # Task 1
 
-[< Project 1](project1)
+[< Project 1](project1.md)
 
 ## Description
 First task
@@ -89,7 +89,7 @@ requires:
 ---
 # Task 2
 
-[< Project 1](project1)
+[< Project 1](project1.md)
 
 ## Description
 Depends on task1
@@ -110,7 +110,7 @@ requires:
 Depends on Project 1 completion
 
 ## Tasks
-- [ ] [Task 1](project2.task1)
+- [ ] [Task 1](project2.task1.md)
 """)
 
     # Create task with multiple requirements
@@ -127,7 +127,7 @@ requires:
 ---
 # Task 1
 
-[< Project 2](project2)
+[< Project 2](project2.md)
 
 ## Description
 Depends on multiple tasks from project1

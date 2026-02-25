@@ -187,8 +187,8 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
                 if parent_path.exists():
                     content = parent_path.read_text()
                     # Update link from archive/ to direct
-                    pattern = rf'(\[[^\]]+\]\()archive/{re.escape(group_stem)}(\))'
-                    replacement = rf'\g<1>{group_stem}\g<2>'
+                    pattern = rf'(\[[^\]]+\]\()archive/{re.escape(group_stem)}\.md(\))'
+                    replacement = rf'\g<1>{group_stem}.md\g<2>'
                     new_content = re.sub(pattern, replacement, content)
                     if new_content != content:
                         parent_path.write_text(new_content)
@@ -786,3 +786,36 @@ def expand(name: str):
     log_info(click.style(f"\nSuccess! Created {len(created_files)} subtasks under {task_stem}", fg="green"))
     for safe_name, filename, status in created_files:
         log_info(f"  - {filename} (status: {status})")
+
+
+@cli.command()
+@click.argument("query")
+@require_init
+def link(query: str):
+    """Print a [Title](stem.md) link for a note. Suitable for piping.
+
+    \b
+    Examples:
+      cor link myproject                 # [My Project](myproject.md)
+      cor link myproject.task1           # [Task 1](myproject.task1.md)
+      cor link "task" | pbcopy          # Copy to clipboard
+    """
+    from ..core.notes import parse_note
+
+    notes_dir = get_notes_dir()
+    result = resolve_file_fuzzy(query, include_archived=True)
+    if result is None:
+        sys.exit(1)
+
+    stem, in_archive = result
+    note_file = notes_dir / f"{stem}.md"
+    if not note_file.exists():
+        note_file = notes_dir / "archive" / f"{stem}.md"
+
+    if not note_file.exists():
+        click.echo(f"No note found for '{query}'", err=True)
+        sys.exit(1)
+
+    note = parse_note(note_file)
+    title = note.title if note and note.title else stem
+    click.echo(f"[{title}]({stem}.md)", nl=False)
