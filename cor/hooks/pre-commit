@@ -13,10 +13,48 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Add repo root to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from cor.sync import MaintenanceRunner
-from cor.config import get_vault_path
+
+def get_cortex_python() -> Path | None:
+    """Find the Python interpreter from the cor command."""
+    try:
+        result = subprocess.run(
+            ["which", "cor"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        cor_path = Path(result.stdout.strip()).resolve()
+        # Read the shebang from the cor script to find its Python
+        with open(cor_path) as f:
+            first_line = f.readline()
+            if first_line.startswith("#!"):
+                python_path = first_line[2:].strip()
+                if python_path.startswith("/"):
+                    return Path(python_path)
+    except Exception:
+        pass
+    return None
+
+
+# First try: use the Python from the cor command's environment
+cortex_python = get_cortex_python()
+if cortex_python and cortex_python.exists():
+    # We're being run by git with system Python, but cor is installed
+    # in a different Python environment. Re-exec with that Python.
+    if Path(sys.executable) != cortex_python:
+        result = subprocess.run([str(cortex_python), __file__] + sys.argv[1:])
+        sys.exit(result.returncode)
+
+# Second try: normal import (works when cor is in the same environment)
+try:
+    from cor.sync import MaintenanceRunner
+    from cor.config import get_vault_path
+except ImportError:
+    # Third try: add repo root to path (development mode)
+    repo_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(repo_root))
+    from cor.sync import MaintenanceRunner
+    from cor.config import get_vault_path
 
 
 def get_staged_md_files() -> tuple[list[str], list[str]]:
