@@ -55,7 +55,7 @@ where = ["."]
 include = ["cor*"]
 
 [tool.setuptools.package-data]
-cor = ["assets/*.md", "assets/*.yaml", "hooks/*"]
+cor = ["assets/*.md", "assets/*.yaml", "assets/*.lua", "hooks/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

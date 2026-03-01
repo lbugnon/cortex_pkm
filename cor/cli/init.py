@@ -15,6 +15,29 @@ from ..utils import get_notes_dir, get_templates_dir, log_info, log_verbose
 import os
 
 
+def _install_nvim_plugin(yes: bool = False):
+    """Check for LazyVim and offer to install the nvim plugin."""
+    lazyvim_plugins_dir = Path.home() / ".config" / "nvim" / "lua" / "plugins"
+    if not lazyvim_plugins_dir.exists():
+        return
+
+    dest = lazyvim_plugins_dir / "cortex.lua"
+    already_installed = dest.exists()
+
+    log_info("LazyVim detected.")
+    prompt = "Update nvim plugin?" if already_installed else "Install nvim plugin for link insertion and backlinks?"
+    if not yes:
+        if not click.confirm(prompt, default=True):
+            return
+
+    src = Path(__file__).parent.parent / "assets" / "cortex.lua"
+    dest.write_text(src.read_text())
+    log_info(f"Nvim plugin installed: {dest}")
+
+    if not shutil.which("fd"):
+        click.echo("  Warning: 'fd' not found. Install it for the plugin to work (e.g. sudo pacman -S fd).")
+
+
 @cli.command()
 @click.pass_context
 @click.option("yes", "--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompts")
@@ -104,6 +127,9 @@ def init(ctx, yes: bool):
     # Install git hooks
     _install_pre_commit_hook()
     _install_shell_completion()
+
+    # Offer LazyVim plugin installation
+    _install_nvim_plugin(yes)
 
 
 @cli.command()
