@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 from . import cli, _install_pre_commit_hook, _install_shell_completion
-from ..config import set_vault_path, _config_file
+from ..config import set_vault_path, _config_file, set_remote_inbox
 from ..schema import DATE_TIME
 from ..utils import get_notes_dir, get_templates_dir, log_info, log_verbose
 import os
@@ -38,16 +38,97 @@ def _install_nvim_plugin(yes: bool = False):
         click.echo("  Warning: 'fd' not found. Install it for the plugin to work (e.g. sudo pacman -S fd).")
 
 
+def _setup_calendar():
+    """Set up Google Calendar integration during init."""
+    from ..commands.calendar import _get_credentials
+    
+    click.echo()
+    click.echo(click.style("Google Calendar Setup", bold=True))
+    click.echo("This will sync task due dates to Google Calendar.")
+    
+    # Check if already authenticated
+    if _get_credentials():
+        click.echo(click.style("✓ Already authenticated", fg="green"))
+        return
+    
+    click.echo()
+    click.echo("You'll need to:")
+    click.echo("  1. Authenticate with your Google account")
+    click.echo("  2. Grant access to manage your calendars")
+    click.echo()
+    
+    if not click.confirm("Continue with Google Calendar setup?", default=True):
+        click.echo("Skipped. Run 'cor calendar auth' later to set up.")
+        return
+    
+    try:
+        from ..commands.calendar import auth as calendar_auth
+        # Run the auth command
+        ctx = click.get_current_context()
+        ctx.invoke(calendar_auth)
+    except Exception as e:
+        click.echo(click.style(f"Setup failed: {e}", fg="yellow"))
+        click.echo("You can set up later with: cor calendar auth")
+
+
+def _setup_telegram():
+    """Set up Telegram inbox integration during init."""
+    from ..config import get_remote_inbox
+    
+    click.echo()
+    click.echo(click.style("Telegram Inbox Setup", bold=True))
+    click.echo("This allows you to capture notes via Telegram messages.")
+    
+    # Check if already configured
+    if get_remote_inbox():
+        click.echo(click.style("✓ Already configured", fg="green"))
+        return
+    
+    click.echo()
+    click.echo("To set up:")
+    click.echo("  1. Message @BotFather on Telegram to create a bot")
+    click.echo("  2. Copy the bot token provided")
+    click.echo()
+    
+    if not click.confirm("Do you have a bot token?", default=True):
+        click.echo("Skipped. Run 'cor config inbox <token>' later to set up.")
+        return
+    
+    bot_token = click.prompt("Enter your bot token", hide_input=True)
+    bot_token = bot_token.strip()
+    
+    if not bot_token:
+        click.echo("No token provided. Skipped.")
+        return
+    
+    # Test the token and save
+    try:
+        from ..commands.inbox import test_telegram_connection
+        test_telegram_connection(bot_token)
+        set_remote_inbox(bot_token)
+        click.echo()
+        click.echo(click.style("✓ Telegram inbox configured", fg="green"))
+        click.echo("Messages sent to your bot will be pulled during 'cor sync'")
+    except Exception as e:
+        click.echo(click.style(f"Failed to configure: {e}", fg="yellow"))
+        click.echo("You can set up later with: cor config inbox <token>")
+
+
 @cli.command()
 @click.pass_context
 @click.option("yes", "--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompts")
-def init(ctx, yes: bool):
+@click.option("--with-calendar", is_flag=True, default=False, help="Set up Google Calendar integration")
+@click.option("--with-telegram", is_flag=True, default=False, help="Set up Telegram inbox integration")
+def init(ctx, yes: bool, with_calendar: bool, with_telegram: bool):
     """Initialize a new Cortex vault.
     
     Creates the vault structure (notes/, templates/, root.md, backlog.md).
     Initializes git repository if not already present.
     Installs git hooks and configures shell completion automatically.
     Sets this directory as your vault path in the global config.
+    
+    Use --with-calendar to set up Google Calendar sync for due dates.
+    Use --with-telegram to set up Telegram inbox for capturing notes.
     """
     # Ask for confirmation to set this directory as vault
     vault_path = Path.cwd()
@@ -97,6 +178,14 @@ def init(ctx, yes: bool):
             log_verbose(f"Created {path}")
 
     log_info("Cortex vault initialized.")
+
+    # Optional: Google Calendar integration
+    if with_calendar or (not yes and click.confirm("Set up Google Calendar integration?", default=False)):
+        _setup_calendar()
+
+    # Optional: Telegram inbox integration
+    if with_telegram or (not yes and click.confirm("Set up Telegram inbox integration?", default=False)):
+        _setup_telegram()
 
     # Create default .gitignore if not exists
     gitignore_path = vault_path / ".gitignore"
