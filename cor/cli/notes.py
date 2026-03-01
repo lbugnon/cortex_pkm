@@ -438,6 +438,9 @@ def mark(archived: bool, status_option: str | None, name: str, status: str | Non
     """Update task status.
 
     Supports fuzzy matching for task names and glob patterns for bulk updates.
+    
+    You can also set due dates using natural language (e.g., "due tomorrow",
+    "due next friday"). Tags can be added with "tag <name>".
 
     \b
     Status values:
@@ -445,7 +448,7 @@ def mark(archived: bool, status_option: str | None, name: str, status: str | Non
       active     Currently working on
       done       Completed
       blocked    Waiting on external dependency
-      waiting    Paused, waiting for information
+      waiting    Paused, waiting for information (auto-sets due: 1 day)
       dropped    Abandoned/won't do
 
     \b
@@ -456,6 +459,8 @@ def mark(archived: bool, status_option: str | None, name: str, status: str | Non
       cor mark "project.*" done               # Bulk: mark all project tasks done
       cor mark -s done "project.*"            # Alternative: --status before pattern
       cor mark project.group.* active         # Bulk: mark group tasks active
+      cor mark mytask active due tomorrow     # Set status and due date
+      cor mark mytask todo due next friday tag urgent
     """
     from fnmatch import fnmatch
     from ..utils import is_glob_pattern, expand_glob_to_stems
@@ -598,7 +603,7 @@ def _update_task_status(
         file_path: Path to the task file
         note: Parsed note object
         status: New status value
-        text: Optional text to append
+        text: Optional text to append (may contain due dates like "due tomorrow")
         notes_dir: Path to notes directory
         display: Whether to display status update
     """
@@ -622,15 +627,50 @@ def _update_task_status(
     old_status = post.get('status', 'none')
     post['status'] = status
 
-    # If status is waiting, add a due date of 1 day
-    if status == "waiting":
-        due_date = (datetime.now() + timedelta(days=1)).strftime(DATE_TIME)
-        post['due'] = due_date
-
-    # Append text if provided
+    # Parse text for due dates, tags, and status
+    due_date = None
+    tags = []
+    text_to_append = None
+    
     if text:
         text_str = " ".join(text)
-        post.content = post.content.rstrip() + f"\n{text_str}"
+        cleaned_text, due_date, parsed_tags, parsed_status = parse_natural_language_text(text_str)
+        
+        # Use any remaining text after parsing
+        cleaned_text = cleaned_text.strip()
+        if cleaned_text:
+            text_to_append = cleaned_text
+        
+        # Store parsed tags for later use
+        tags = parsed_tags
+        
+        # If a status was parsed from text, it overrides the command-line status
+        if parsed_status:
+            status = parsed_status
+            post['status'] = status
+    
+    # If status is waiting and no due date was specified, add a due date of 1 day
+    if status == "waiting" and due_date is None:
+        due_date = datetime.now() + timedelta(days=1)
+    
+    # Apply due date if parsed or auto-set
+    if due_date:
+        post['due'] = due_date.strftime(DATE_TIME)
+    
+    # Apply tags if any were parsed
+    if tags:
+        existing_tags = post.get('tags', []) or []
+        if isinstance(existing_tags, str):
+            existing_tags = [existing_tags]
+        # Add new tags, avoiding duplicates
+        for tag in tags:
+            if tag not in existing_tags:
+                existing_tags.append(tag)
+        post['tags'] = existing_tags
+
+    # Append remaining text if provided
+    if text_to_append:
+        post.content = post.content.rstrip() + f"\n{text_to_append}"
 
     with open(file_path, 'wb') as f:
         frontmatter.dump(post, f, sort_keys=False)
@@ -644,8 +684,12 @@ def _update_task_status(
         symbol = STATUS_SYMBOLS.get(status, "")
         click.echo(f"{symbol} {note.title}: {old_status} → {click.style(status, bold=True)}")
         
-        if text:
-            click.echo(f"  Added note: {' '.join(text)}")
+        if due_date:
+            click.echo(f"  Set due: {due_date.strftime(DATE_TIME)}")
+        if tags:
+            click.echo(f"  Added tags: {', '.join(tags)}")
+        if text_to_append:
+            click.echo(f"  Added note: {text_to_append}")
 
 
 @cli.command()
