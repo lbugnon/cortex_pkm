@@ -335,7 +335,7 @@ class ProjectTreeApp(App):
 
     # ── Input prompt machinery ────────────────────────────────────────────────
 
-    def _prompt_input(self, placeholder: str, callback: Callable[[str], None], prefill: str = "") -> None:
+    def _prompt_input(self, placeholder: str, callback: Callable[[str], None], prefill: str = "", cursor_position: int | None = None) -> None:
         """Show the inline input bar, call callback(text) on Enter."""
         self._input_callback = callback
         inp = self.query_one("#prompt-input", Input)
@@ -344,6 +344,9 @@ class ProjectTreeApp(App):
         self.query_one("#status-bar", Static).display = False
         inp.display = True
         inp.focus()
+        # Set cursor position after focus (if specified)
+        if cursor_position is not None:
+            inp.cursor_position = cursor_position
 
     def _close_prompt(self) -> None:
         inp = self.query_one("#prompt-input", Input)
@@ -428,24 +431,54 @@ class ProjectTreeApp(App):
     # ── New task ──────────────────────────────────────────────────────────────
 
     def _new_task(self, prefix: str) -> None:
-        """Prompt for a task name under prefix and create it."""
-        def create(name: str) -> None:
-            if not name or name == prefix:
+        """Prompt for a task name under prefix and create it.
+        
+        Supports natural language for due dates and tags:
+        - "task1 due tomorrow"
+        - "task1 due next friday tag urgent"
+        - "task1 mark active"
+        """
+        def create(input_text: str) -> None:
+            if not input_text or input_text == prefix:
                 return
-            full = name if name.startswith(prefix) else prefix + name
+            
+            # The input might be: "taskname this is description due tomorrow"
+            # We need to extract the task name (first word) and pass the rest as text
+            full = input_text if input_text.startswith(prefix) else prefix + input_text
+            
+            # Split to get task name and extra text
+            # Task name is the first dot-separated segment after the prefix
+            # Everything else is description text for NLP parsing
+            parts = full.split()
+            if not parts:
+                return
+            
+            task_name = parts[0]  # e.g., "cortex.group.taskname"
+            extra_text = parts[1:]  # e.g., ["this", "is", "description", "due", "tomorrow"]
+            
             import subprocess
+            cmd = ["cor", "new", "task", task_name, "--no-edit"]
+            if extra_text:
+                cmd.extend(extra_text)
+            
             result = subprocess.run(
-                ["cor", "new", "task", full, "--no-edit"],
+                cmd,
                 capture_output=True, text=True, cwd=self.notes_dir,
             )
             if result.returncode != 0:
                 self.notify(f"Error: {result.stderr}", severity="error")
                 return
             self._load_data()
-            self._populate_tree(preserve_cursor_stem=full)
-            self.notify(f"Created: {full}", timeout=1.5)
+            self._populate_tree(preserve_cursor_stem=task_name)
+            self.notify(f"Created: {task_name}", timeout=1.5)
 
-        self._prompt_input(placeholder=f"new task name", callback=create, prefill=prefix)
+        # Place cursor right after the prefix so user can type the task name
+        self._prompt_input(
+            placeholder=f"task name [due tomorrow] [tag urgent]...",
+            callback=create,
+            prefill=prefix,
+            cursor_position=len(prefix)
+        )
 
     # ── Move / reparent ───────────────────────────────────────────────────────
 
