@@ -22,9 +22,9 @@ status: active
 
 ## Tasks
 
-- [ ] [Experiments](p1.experiments)
+- [ ] [Experiments](p1.experiments.md)
 """)
-    
+
     # Group under p1
     group = notes / "p1.experiments.md"
     group.write_text("""---
@@ -35,13 +35,13 @@ parent: p1
 
 # Experiments
 
-[< Project 1](p1)
+[< Project 1](p1.md)
 
 ## Tasks
 
-- [ ] [Task A](p1.experiments.task_a)
+- [ ] [Task A](p1.experiments.task_a.md)
 """)
-    
+
     # Task under the group
     task = notes / "p1.experiments.task_a.md"
     task.write_text("""---
@@ -52,7 +52,7 @@ parent: p1.experiments
 
 # Task A
 
-[< Experiments](p1.experiments)
+[< Experiments](p1.experiments.md)
 
 ## Description
 """)
@@ -101,12 +101,12 @@ def test_move_group_to_different_project(vault_with_groups):
     # Check new parent (p2) has the link
     p2_content = vault_with_groups["p2"].read_text()
     assert "experiments" in p2_content.lower(), "p2 should have experiments link"
-    assert "[Experiments](p2.experiments)" in p2_content or "experiments" in p2_content
-    
+    assert "[Experiments](p2.experiments.md)" in p2_content or "experiments" in p2_content
+
     # Check group file updated
     group_content = new_group_path.read_text()
     assert "parent: p2" in group_content, "Group parent field should be updated to p2"
-    assert "[< Project 2](p2)" in group_content, "Group backlink should point to p2"
+    assert "[< Project 2](p2.md)" in group_content, "Group backlink should point to p2"
     
     # Check child task's parent link updated (should now point to p2.experiments)
     task_content = vault_with_groups["task"].read_text()

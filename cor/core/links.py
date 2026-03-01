@@ -30,6 +30,9 @@ class LinkPatterns:
     # Basic link pattern: [text](target)
     LINK = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
 
+    # Generic capture group for link manipulation: ([text](), target, ())
+    LINK_CAPTURE = re.compile(r'(\[[^\]]+\]\()([^)]+)(\))')
+
     # Archive link patterns
     ARCHIVE_LINK = re.compile(r'(\[[^\]]+\]\()archive/([^)]+)(\))')
     ARCHIVE_LINK_WITH_TEXT = re.compile(r'\[([^\]]+)\]\(archive/([^)]+)\)')
@@ -183,8 +186,8 @@ class LinkManager:
 
         Args:
             content: File content
-            old_target: Old link target (stem)
-            new_target: New link target (stem)
+            old_target: Old link target (stem.md, e.g. "task.md")
+            new_target: New link target (stem.md, e.g. "new_task.md")
             preserve_archive_prefix: If True, keep archive/ prefix if present
 
         Returns:
@@ -206,7 +209,7 @@ class LinkManager:
                        new_parent_title: str) -> str:
         """Update backlink (parent reference) in content.
 
-        Backlinks have format: [< Parent Title](parent_stem)
+        Backlinks have format: [< Parent Title](parent_stem.md)
 
         Args:
             content: File content
@@ -217,9 +220,9 @@ class LinkManager:
         Returns:
             Updated content
         """
-        # Match both regular and archive/ versions
-        old_pattern = rf'\[<[^\]]+\](?:\((?:archive/)?{re.escape(old_parent)}\))'
-        new_backlink = f"[< {new_parent_title}]({new_parent})"
+        # Match regular, archive/, and ../ versions
+        old_pattern = rf'\[<[^\]]+\]\((?:(?:archive/|\.\./)?){re.escape(old_parent)}\.md\)'
+        new_backlink = f"[< {new_parent_title}]({new_parent}.md)"
 
         return re.sub(old_pattern, new_backlink, content)
 
@@ -239,8 +242,8 @@ class LinkManager:
 
         for child_stem in child_stems:
             # Only add archive/ if not already present
-            pattern = rf'(\[[^\]]+\]\()(?!archive/)({re.escape(child_stem)})(\))'
-            replacement = rf'\g<1>archive/{child_stem}\g<3>'
+            pattern = rf'(\[[^\]]+\]\()(?!archive/)({re.escape(child_stem)}\.md)(\))'
+            replacement = rf'\g<1>archive/{child_stem}.md\g<3>'
             new_content = re.sub(pattern, replacement, new_content)
 
         return new_content
@@ -248,18 +251,18 @@ class LinkManager:
     def remove_task_entry(self, content: str, task_stem: str) -> str:
         """Remove task entry line from parent content.
 
-        Removes lines like: - [x] [Title](task_stem)
+        Removes lines like: - [x] [Title](task_stem.md)
         Handles both regular and archive/ prefixed links.
 
         Args:
             content: Parent file content
-            task_stem: Task stem to remove
+            task_stem: Task stem to remove (without .md extension)
 
         Returns:
             Content with task entry removed
         """
-        # Pattern matches: - [x] [Title](task) or - [x] [Title](archive/task)
-        pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(task_stem)}\)\n?'
+        # Pattern matches: - [x] [Title](task.md) or - [x] [Title](archive/task.md)
+        pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(task_stem)}\.md\)\n?'
         return re.sub(pattern, '', content, flags=re.MULTILINE)
 
     def update_task_checkbox(self, content: str, task_stem: str,
@@ -268,14 +271,14 @@ class LinkManager:
 
         Args:
             content: Parent file content
-            task_stem: Task stem to update
+            task_stem: Task stem to update (without .md extension)
             new_checkbox: New checkbox symbol (x, ., o, ~, or space)
 
         Returns:
             Updated content
         """
-        pattern = rf"(- )\[[x .o~]\]( \[[^\]]+\]\()(archive/)?{re.escape(task_stem)}(\))"
-        replacement = rf"\g<1>[{new_checkbox}]\g<2>\g<3>{task_stem}\g<4>"
+        pattern = rf"(- )\[[x .o~]\]( \[[^\]]+\]\()(archive/)?{re.escape(task_stem)}\.md(\))"
+        replacement = rf"\g<1>[{new_checkbox}]\g<2>\g<3>{task_stem}.md\g<4>"
         return re.sub(pattern, replacement, content, flags=re.MULTILINE)
 
     def extract_task_entries(self, content: str) -> list[tuple[str, str, str]]:
@@ -319,8 +322,11 @@ class LinkManager:
             if link.is_external:
                 continue
 
-            # Remove archive/ prefix for validation
-            target_stem = link.target.replace('archive/', '').replace('../', '')
+            # Remove archive/ and ../ prefixes, and .md suffix for validation
+            target_stem = (link.target
+                           .replace('archive/', '')
+                           .replace('../', '')
+                           .removesuffix('.md'))
 
             # Check if target exists
             if all_notes and target_stem not in all_notes:
@@ -331,6 +337,9 @@ class LinkManager:
     def resolve_target_path(self, link_target: str, source_file: Path) -> Path:
         """Resolve link target to absolute path.
 
+        Link targets already include the .md extension (e.g. "stem.md",
+        "archive/stem.md", "../stem.md").
+
         Args:
             link_target: Link target string (may have archive/ or ../ prefix)
             source_file: Path to file containing the link
@@ -338,34 +347,24 @@ class LinkManager:
         Returns:
             Resolved absolute path
         """
-        # Handle archive/ prefix
+        # Handle archive/ prefix: e.g. "archive/stem.md"
         if link_target.startswith('archive/'):
-            target_stem = link_target[8:]  # Remove 'archive/'
-            return self.archive_dir / f"{target_stem}.md"
+            target_file = link_target[8:]  # Remove 'archive/', keep "stem.md"
+            return self.archive_dir / target_file
 
-        # Handle ../ prefix (link from archive to parent)
+        # Handle ../ prefix (link from archive to parent): e.g. "../stem.md"
         if link_target.startswith('../'):
-            target_stem = link_target[3:]  # Remove '../'
-            return self.notes_dir / f"{target_stem}.md"
+            target_file = link_target[3:]  # Remove '../', keep "stem.md"
+            return self.notes_dir / target_file
 
         # Regular link - check if source is in archive
         source_in_archive = self.archive_dir in source_file.parents
 
         if source_in_archive:
-            # Link from archive file - target should also be in archive unless it has ../
-            return self.archive_dir / f"{link_target}.md"
+            # Link from archive file - target is in archive (siblings)
+            return self.archive_dir / link_target
         else:
             # Link from active file
-            return self.notes_dir / f"{link_target}.md"
+            return self.notes_dir / link_target
 
 
-def is_external_link(target: str) -> bool:
-    """Quick check if a link target is external.
-
-    Args:
-        target: Link target string
-
-    Returns:
-        True if external
-    """
-    return target.startswith(LinkPatterns.EXTERNAL_PREFIXES)

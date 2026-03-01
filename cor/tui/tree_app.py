@@ -7,6 +7,7 @@ from typing import Callable, ClassVar
 
 from rich.text import Text
 from textual.app import App, ComposeResult
+from textual.containers import Horizontal
 from textual.suggester import Suggester
 from textual.widgets import Input, Static, Tree
 
@@ -81,6 +82,35 @@ class ProjectTreeApp(App):
         padding: 1 2 0 2;
     }
 
+    #main-container {
+        width: 100%;
+        height: 1fr;
+    }
+
+    #tree-container {
+        width: 60%;
+        height: 100%;
+    }
+
+    #preview-pane {
+        width: 40%;
+        height: 100%;
+        border-left: solid $surface-darken-1;
+        background: $surface-darken-1;
+        padding: 0 1;
+        overflow: auto;
+    }
+
+    #preview-pane:focus {
+        border-left: solid $primary;
+    }
+
+    #preview-content {
+        width: 100%;
+        height: auto;
+        padding: 1;
+    }
+
     Tree {
         background: $background;
         border: none;
@@ -103,9 +133,9 @@ class ProjectTreeApp(App):
     }
 
     Tree > .tree--cursor {
-        background: $surface;
+        background: $primary-darken-2;
         color: $text;
-        text-style: none;
+        text-style: bold;
     }
 
     Tree > .tree--highlight {
@@ -167,9 +197,13 @@ class ProjectTreeApp(App):
 
     def compose(self) -> ComposeResult:
         yield Static("", id="header")
-        tree = Tree(self.focus)
-        tree.show_root = False
-        yield tree
+        with Horizontal(id="main-container"):
+            with Horizontal(id="tree-container"):
+                tree = Tree(self.focus)
+                tree.show_root = False
+                yield tree
+            with Static(id="preview-pane"):
+                yield Static("", id="preview-content")
         yield Static(_HELP, id="status-bar")
         yield Input(id="prompt-input", suggester=NotesSuggester())
 
@@ -343,7 +377,15 @@ class ProjectTreeApp(App):
             self.notify("Not a task", severity="warning")
             return
 
-        next_stem = self._get_next_task_stem()
+        # Determine where to move cursor after status change
+        if new_status in ("done", "dropped"):
+            # For terminal statuses, try next task first, then previous
+            next_stem = self._get_next_task_stem()
+            prev_stem = self._get_prev_task_stem() if not next_stem else None
+            preserve = next_stem or prev_stem
+        else:
+            # For non-terminal statuses, stay on the same task
+            preserve = task.stem
 
         try:
             if note:
@@ -358,7 +400,6 @@ class ProjectTreeApp(App):
                 self.notify(f"Error: {result.stderr}", severity="error")
                 return
 
-            preserve = next_stem if new_status in ("done", "dropped") and next_stem else task.stem
             self._load_data()
             self._populate_tree(preserve_cursor_stem=preserve)
             self.query_one("#header", Static).update(self._header_text())
@@ -421,6 +462,8 @@ class ProjectTreeApp(App):
     def on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
         task = event.node.data if isinstance(event.node.data, TaskNode) else None
         bar = self.query_one("#status-bar", Static)
+        preview = self.query_one("#preview-content", Static)
+        
         if task:
             symbol, color = STATUS_STYLES.get(task.status, ("[ ]", "white"))
             text = Text()
@@ -428,8 +471,66 @@ class ProjectTreeApp(App):
             text.append(f"{task.title}  ", style="bold")
             text.append(_HELP, style="dim")
             bar.update(text)
+            
+            # Update preview pane with note content
+            self._update_preview(task, preview)
         else:
             bar.update(Text(_HELP, style="dim"))
+            preview.update("")
+
+    def _update_preview(self, task: TaskNode, preview_widget: Static) -> None:
+        """Load and display note content in the preview pane."""
+        try:
+            from ..core.notes import Note
+            note = Note.from_file(task.file_path)
+            
+            preview_text = Text()
+            
+            # Title
+            preview_text.append(f"{note.title}\n", style="bold underline")
+            preview_text.append("─" * min(len(note.title), 40) + "\n\n", style="dim")
+            
+            # Metadata
+            if note.note_type:
+                preview_text.append(f"Type: ", style="dim")
+                preview_text.append(f"{note.note_type}\n", style="cyan")
+            if note.status:
+                symbol, color = STATUS_STYLES.get(note.status, ("[ ]", "white"))
+                preview_text.append(f"Status: ", style="dim")
+                preview_text.append(f"{symbol} {note.status}\n", style=color)
+            if note.due:
+                due_str = note.due.strftime("%Y-%m-%d") if hasattr(note.due, 'strftime') else str(note.due)
+                preview_text.append(f"Due: ", style="dim")
+                preview_text.append(f"{due_str}\n", style="yellow" if note.is_overdue else "")
+            if note.priority:
+                preview_text.append(f"Priority: ", style="dim")
+                preview_text.append(f"{note.priority}\n", style="red" if note.priority == "high" else "")
+            if note.tags:
+                preview_text.append(f"Tags: ", style="dim")
+                preview_text.append(f"{', '.join(note.tags)}\n", style="magenta")
+            if note.requires:
+                preview_text.append(f"Requires: ", style="dim")
+                preview_text.append(f"{', '.join(note.requires)}\n", style="blue")
+            
+            preview_text.append("\n", style="")
+            
+            # Content (skip first h1 heading since we showed title)
+            content_lines = note.content.split('\n')
+            content_started = False
+            for line in content_lines:
+                # Skip frontmatter delimiters
+                if line.strip() == '---':
+                    continue
+                # Skip until we pass the first h1
+                if line.startswith('# ') and not content_started:
+                    content_started = True
+                    continue
+                if content_started:
+                    preview_text.append(line + '\n', style="")
+            
+            preview_widget.update(preview_text)
+        except Exception:
+            preview_widget.update(Text("Unable to load preview", style="dim"))
 
     def _get_selected_task(self) -> TaskNode | None:
         node = self.query_one(Tree).cursor_node
@@ -446,6 +547,19 @@ class ProjectTreeApp(App):
             return sib.data.stem
         if current.parent:
             sib = current.parent.next_sibling
+            if sib and isinstance(sib.data, TaskNode):
+                return sib.data.stem
+        return None
+
+    def _get_prev_task_stem(self) -> str | None:
+        current = self.query_one(Tree).cursor_node
+        if not current:
+            return None
+        sib = current.previous_sibling
+        if sib and isinstance(sib.data, TaskNode):
+            return sib.data.stem
+        if current.parent:
+            sib = current.parent.previous_sibling
             if sib and isinstance(sib.data, TaskNode):
                 return sib.data.stem
         return None

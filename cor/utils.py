@@ -229,7 +229,7 @@ def render_template(
     # Generate parent link if parent exists
     parent_link = ""
     if parent and parent_title:
-        parent_link = f"[< {parent_title}]({parent})"
+        parent_link = f"[< {parent_title}]({parent}.md)"
     
     content = template.format(
         date=now,
@@ -298,7 +298,7 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
         return
 
     content = project_path.read_text()
-    task_entry = f"- [ ] [{format_title(task_name)}]({task_filename})"
+    task_entry = f"- [ ] [{format_title(task_name)}]({task_filename}.md)"
 
     # Find Tasks section and add entry
     if "## Tasks" in content:

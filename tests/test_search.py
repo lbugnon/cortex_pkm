@@ -74,7 +74,7 @@ tags: [training, optimization]
 ---
 # Training Pipeline
 
-[< ML Project](mlproject)
+[< ML Project](mlproject.md)
 
 ## Description
 Implement the training loop with gradient descent optimization.
@@ -97,7 +97,7 @@ tags: [data, preprocessing]
 ---
 # Data Pipeline
 
-[< ML Project](mlproject)
+[< ML Project](mlproject.md)
 
 ## Description
 Clean and preprocess the dataset for training.

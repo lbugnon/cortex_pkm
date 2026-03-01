@@ -10,7 +10,7 @@ from cor.sync.runner import (
     should_archive,
     should_unarchive,
 )
-from cor.core.links import is_external_link
+from cor.core.links import LinkPatterns
 
 
 # --- Fixtures ---
@@ -36,8 +36,8 @@ created: 2024-01-01
 # My Project
 
 ## Tasks
-- [ ] [Task 1](myproject.task1)
-- [ ] [Task 2](myproject.task2)
+- [ ] [Task 1](myproject.task1.md)
+- [ ] [Task 2](myproject.task2.md)
 """)
 
     task1 = simple_vault / "myproject.task1.md"
@@ -48,7 +48,7 @@ created: 2024-01-01
 ---
 # Task 1
 
-See [parent](myproject).
+See [parent](myproject.md).
 """)
 
     task2 = simple_vault / "myproject.task2.md"
@@ -59,7 +59,7 @@ created: 2024-01-01
 ---
 # Task 2
 
-See [parent](myproject).
+See [parent](myproject.md).
 """)
 
     return {
@@ -128,19 +128,19 @@ class TestShouldUnarchive:
 
 class TestIsExternalLink:
     def test_https(self):
-        assert is_external_link("https://example.com")
+        assert "https://example.com".startswith(LinkPatterns.EXTERNAL_PREFIXES)
 
     def test_http(self):
-        assert is_external_link("http://example.com")
+        assert "http://example.com".startswith(LinkPatterns.EXTERNAL_PREFIXES)
 
     def test_mailto(self):
-        assert is_external_link("mailto:test@example.com")
+        assert "mailto:test@example.com".startswith(LinkPatterns.EXTERNAL_PREFIXES)
 
     def test_anchor(self):
-        assert is_external_link("#section")
+        assert "#section".startswith(LinkPatterns.EXTERNAL_PREFIXES)
 
     def test_local_file(self):
-        assert not is_external_link("myfile.md")
+        assert not "myfile.md".startswith(LinkPatterns.EXTERNAL_PREFIXES)
 
 
 # --- MaintenanceRunner tests ---
@@ -294,7 +294,7 @@ class TestSyncTaskStatus:
 
         assert len(updated) == 1
         project_content = project.read_text()
-        assert "[.] [Task 1](myproject.task1)" in project_content
+        assert "[.] [Task 1](myproject.task1.md)" in project_content
 
 
 class TestSortTasks:
