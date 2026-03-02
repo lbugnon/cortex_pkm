@@ -1,8 +1,17 @@
-# CortexPKM
+<div align="center">
 
-Plain text knowledge management. Track projects, tasks, ideas, and progress using markdown files and git.
+<img src="logo.png" alt="Cor Logo" width="120" height="120">
 
-Small new year project to try new coding agents :)
+
+**Plain text knowledge management for the terminal**
+
+[![PyPI](https://img.shields.io/pypi/v/cor-text)](https://pypi.org/project/cor-text/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+Track projects, tasks, ideas, and progress using markdown files and git.
+
 
 ## Philosophy
 
@@ -11,6 +20,12 @@ Small new year project to try new coding agents :)
 - **Files over folders** - Flat structure with dot notation (`project.group.task.md`). `archive` folder serve to hide unactive files. 
 
 ## Installation
+
+```bash
+pip install cor-text
+```
+
+Or install from source:
 
 ```bash
 pip install -e .
@@ -312,7 +327,7 @@ cor ref add 10.1101/2025.07.24.666581 --key smith2026transformers --tags ml --ta
 
 ### Vault Path Setup
 
-Cortex automatically configures your vault path in `~/.config/cortex/config.yaml` when you run `cor init`. You can change it anytime:
+Cor automatically configures your vault path in `~/.config/cor/config.yaml` when you run `cor init`. You can change it anytime:
 
 ```bash
 # Set during initial setup
@@ -333,12 +348,12 @@ cor new task my-project.quick-idea
 
 ### Config File Format
 
-`~/.config/cortex/config.yaml`:
-
+`~/.config/cor/config.yaml`:
 ```yaml
 vault: /home/user/notes        # Vault path (required)
 verbosity: 1                   # 0=silent, 1=normal, 2=verbose, 3=debug
 remote_inbox: 123456:ABC...    # Telegram bot token (optional)
+```
 ```
 
 ### Configuration Commands
@@ -420,13 +435,13 @@ cor calendar logout
 **How it works**:
 - Creates events for tasks with `due:` dates that are not done/dropped
 - Updates existing events when due dates change
-- Creates a "Cortex Tasks" calendar if it doesn't exist
+- Creates a "Cor Tasks" calendar if it doesn't exist
 - Events include task status in the title: `[active] Task name`
 
 
 ### File Hierarchy & Linking
 
-Cortex uses **dot notation** for hierarchy: `project.group.task.md`
+Cor uses **dot notation** for hierarchy: `project.group.task.md`
 
 **Forward links** (parent → children):
 ```markdown
@@ -552,7 +567,7 @@ your-vault/                 # Your notes directory
 ### Project Source (Development)
 
 ```
-cortex_pkm/                 # Repository root
+cor/                        # Repository root
 ├── cor/                    # Main package
 │   ├── __init__.py
 │   ├── cli.py              # Command-line interface

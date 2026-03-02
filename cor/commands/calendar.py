@@ -1,6 +1,6 @@
-"""Google Calendar integration for Cortex PKM.
+"""Google Calendar integration for Cor.
 
-This module provides one-way sync from Cortex tasks to Google Calendar.
+This module provides one-way sync from Cor tasks to Google Calendar.
 Authentication uses OAuth 2.0 with refresh token persistence.
 """
 
@@ -44,7 +44,7 @@ DEFAULT_CLIENT_CONFIG = {
 
 def _get_credentials_file() -> Path:
     """Get path to store Google credentials (refresh token)."""
-    config_dir = Path.home() / ".config" / "cortex"
+    config_dir = Path.home() / ".config" / "cor"
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "google_credentials.pickle"
 
@@ -162,8 +162,8 @@ def _build_service():
     return build("calendar", "v3", credentials=credentials, cache_discovery=False)
 
 
-def _find_or_create_calendar(service, calendar_name: str = "Cortex Tasks") -> str:
-    """Find or create the Cortex Tasks calendar.
+def _find_or_create_calendar(service, calendar_name: str = "Cor Tasks") -> str:
+    """Find or create the Cor Tasks calendar.
     
     Args:
         service: Google Calendar API service
@@ -182,7 +182,7 @@ def _find_or_create_calendar(service, calendar_name: str = "Cortex Tasks") -> st
     # Create new calendar
     calendar = {
         "summary": calendar_name,
-        "description": "Tasks and due dates from Cortex PKM",
+        "description": "Tasks and due dates from Cor",
         "timeZone": "UTC",
     }
     created = service.calendars().insert(body=calendar).execute()
@@ -199,7 +199,7 @@ def auth(client_id: Optional[str], client_secret: Optional[str]):
     Opens a browser for OAuth authentication. The refresh token is stored
     securely and used to maintain access without re-authentication.
     
-    By default, uses the built-in Cortex OAuth app. To use your own:
+    By default, uses the built-in Cor OAuth app. To use your own:
       cor calendar auth --client-id YOUR_ID --client-secret YOUR_SECRET
     """
     from google_auth_oauthlib.flow import InstalledAppFlow
@@ -250,7 +250,7 @@ def auth(client_id: Optional[str], client_secret: Optional[str]):
 
 
 @click.command(short_help="Sync due dates to Google Calendar")
-@click.option("--calendar", "-c", default="Cortex Tasks", help="Calendar name (default: 'Cortex Tasks')")
+@click.option("--calendar", "-c", default="Cor Tasks", help="Calendar name (default: 'Cor Tasks')")
 @require_init
 def sync(calendar: str):
     """Sync task due dates to Google Calendar.
@@ -301,7 +301,7 @@ def sync(calendar: str):
         for event in events_result.get("items", []):
             task_id = None
             
-            # Check for Cortex task ID in extended properties
+            # Check for Cor task ID in extended properties
             props = event.get("extendedProperties", {}).get("private", {})
             task_id = props.get("cortex_task_id")
             
@@ -430,9 +430,9 @@ def sync(calendar: str):
             "end": end,
             "extendedProperties": {
                 "private": {
-                    "cortex_task_id": task_id,
-                    "cortex_status": task.status or "",
-                    "cortex_priority": task.priority or "",
+                    "cor_task_id": task_id,
+                    "cor_status": task.status or "",
+                    "cor_priority": task.priority or "",
                 }
             },
         }

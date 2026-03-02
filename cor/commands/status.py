@@ -1,4 +1,4 @@
-"""Status and reporting commands for Cortex CLI."""
+"""Status and reporting commands for Cor CLI."""
 
 from datetime import datetime, date, timedelta
 import re

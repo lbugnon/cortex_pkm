@@ -1,4 +1,4 @@
-"""Core abstractions for Cortex PKM.
+"""Core abstractions for Cor.
 
 This package contains foundational modules for:
 - Link management (links.py)

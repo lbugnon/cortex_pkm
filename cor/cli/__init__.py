@@ -1,4 +1,4 @@
-"""Cortex CLI - Command modules.
+"""Cor CLI - Command modules.
 
 This package contains the CLI command implementations, organized by category:
 - init: Vault initialization commands
@@ -17,7 +17,7 @@ import click
 from .. import __version__
 from ..config import get_verbosity, set_verbosity
 from ..exceptions import (
-    CortexError,
+    CorError,
     NotFoundError,
     ExternalServiceError,
 )
@@ -26,31 +26,31 @@ from ..exceptions import (
 HOOKS_DIR = Path(__file__).parent.parent / "hooks"
 
 
-def _handle_cortex_error(e: CortexError) -> None:
-    """Handle CortexError exceptions with nice formatting.
+def _handle_cor_error(e: CorError) -> None:
+    """Handle CorError exceptions with nice formatting.
     
-    This function is called when a CortexError is caught at the CLI level.
+    This function is called when a CorError is caught at the CLI level.
     It prints a user-friendly error message and exits with code 1.
     """
     click.secho(f"Error: {e}", fg="red", err=True)
     sys.exit(1)
 
 
-class CortexCLI(click.Group):
-    """Custom CLI group that catches and formats CortexError exceptions."""
+class CorCLI(click.Group):
+    """Custom CLI group that catches and formats CorError exceptions."""
     
     def invoke(self, ctx):
         try:
             return super().invoke(ctx)
-        except CortexError as e:
-            _handle_cortex_error(e)
+        except CorError as e:
+            _handle_cor_error(e)
 
 
-@click.group(cls=CortexCLI, context_settings={
+@click.group(cls=CorCLI, context_settings={
     "help_option_names": ["-h", "--help"],
     "max_content_width": 100,
 })
-@click.version_option(__version__, prog_name="CortexPKM")
+@click.version_option(__version__, prog_name="Cor")
 @click.option(
     "--verbose", "-v",
     count=True,
@@ -58,7 +58,7 @@ class CortexCLI(click.Group):
 )
 @click.pass_context
 def cli(ctx, verbose: int):
-    """Cortex - Plain text knowledge management.
+    """Cor - Plain text knowledge management for the terminal.
     
     A lightweight tool for managing projects, tasks, and notes using
     plain text files and git. 
@@ -119,7 +119,7 @@ def _install_zsh_completion():
     zshrc = Path.home() / ".zshrc"
     
     completion_block = '''
-# Cortex shell completion
+# Cor shell completion
 if command -v cor &> /dev/null; then
     setopt MENU_COMPLETE
 
@@ -163,7 +163,7 @@ fi
     
     if zshrc.exists():
         content = zshrc.read_text()
-        if "# Cortex shell completion" in content or "_cor_completion" in content:
+        if "# Cor shell completion" in content or "_cor_completion" in content:
             click.echo("Shell completion already configured in ~/.zshrc")
             return
     
@@ -179,7 +179,7 @@ def _install_bash_completion():
     bashrc = Path.home() / ".bashrc"
     
     completion_block = '''
-# Cortex shell completion
+# Cor shell completion
 if command -v cor &> /dev/null; then
     eval "$(_COR_COMPLETE=bash_source cor)"
 fi
@@ -187,7 +187,7 @@ fi
     
     if bashrc.exists():
         content = bashrc.read_text()
-        if "# Cortex shell completion" in content or "_COR_COMPLETE=bash_source" in content:
+        if "# Cor shell completion" in content or "_COR_COMPLETE=bash_source" in content:
             click.echo("Shell completion already configured in ~/.bashrc")
             return
     
@@ -199,7 +199,7 @@ fi
 
 
 def _uninstall_pre_commit_hook() -> None:
-    """Remove cortex git hooks."""
+    """Remove Cor git hooks."""
     result = subprocess.run(
         ["git", "rev-parse", "--git-dir"],
         capture_output=True,
@@ -266,7 +266,7 @@ cli.add_command(status)
 cli.add_command(search)
 
 # Calendar commands group
-@cli.group(name="calendar", cls=CortexCLI)
+@cli.group(name="calendar", cls=CorCLI)
 def calendar_group():
     """Google Calendar integration for due dates."""
     pass

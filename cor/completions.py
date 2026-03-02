@@ -1,4 +1,4 @@
-"""Shell completion functions for Cortex CLI."""
+"""Shell completion functions for Cor CLI."""
 
 import os
 

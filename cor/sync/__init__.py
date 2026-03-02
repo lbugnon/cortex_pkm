@@ -1,4 +1,4 @@
-"""Synchronization and maintenance operations for Cortex PKM.
+"""Synchronization and maintenance operations for Cor.
 
 This package contains the MaintenanceRunner and related sync operations.
 """

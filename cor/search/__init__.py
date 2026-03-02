@@ -1,4 +1,4 @@
-"""Search and completion functionality for Cortex PKM.
+"""Search and completion functionality for Cor.
 
 This package contains:
 - fuzzy.py: Fuzzy matching

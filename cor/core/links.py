@@ -1,4 +1,4 @@
-"""Link extraction, validation, and manipulation for Cortex PKM.
+"""Link extraction, validation, and manipulation for Cor.
 
 This module consolidates all regex patterns and link operations that were
 previously scattered across maintenance.py and other modules.

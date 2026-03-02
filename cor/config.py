@@ -1,6 +1,6 @@
 """Vault configuration and path resolution.
 
-This module reads and writes a YAML config at ~/.config/cortex/config.yaml
+This module reads and writes a YAML config at ~/.config/cor/config.yaml
 to store the active vault and other user preferences. 
 """
 
@@ -24,7 +24,7 @@ def _config_dir() -> Path:
         base = Path(xdg)
     else:
         base = Path.home() / ".config"
-    return base / "cortex"
+    return base / "cor"
 
 
 def _config_file() -> Path:

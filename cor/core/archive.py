@@ -1,4 +1,4 @@
-"""Archive path detection and management for Cortex PKM.
+"""Archive path detection and management for Cor.
 
 This module consolidates archive path detection that was scattered across
 multiple locations with inconsistent patterns.

@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cortex-pkm"
+name = "cor-text"
 version = "0.1.4"
-description = "Plain text knowledge management"
+description = "Cor - Plain text knowledge management for the terminal"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 license = {text = "MIT"}
 authors = [
     {name = "lbugnon", email = "lbugnon@sinc.unl.edu.ar"}
@@ -18,10 +18,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business",
     "Topic :: Text Processing :: Markup :: Markdown",
 ]
@@ -42,7 +39,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/lbugnon/cortex_pkm"
+Repository = "https://github.com/lbugnon/cor"
 
 [project.scripts]
 cor = "cor.cli:cli"

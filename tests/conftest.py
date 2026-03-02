@@ -1,4 +1,4 @@
-"""Shared test fixtures for Cortex tests."""
+"""Shared test fixtures for Cor tests."""
 
 import os
 import shutil
@@ -16,7 +16,7 @@ def temp_vault(tmp_path, monkeypatch):
     Sets up:
     - Git repository
     - Basic directory structure (templates/, archive/)
-    - Environment variable CORTEX_VAULT pointing to vault
+    - Environment variable COR_VAULT pointing to vault
     - Patches cli.NOTES_DIR and cli.TEMPLATES_DIR
     - Changes working directory to vault
 
@@ -28,8 +28,8 @@ def temp_vault(tmp_path, monkeypatch):
     # Use XDG_CONFIG_HOME so cor.config picks up our test config directory
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
-    # Create config that points to this vault (cor reads $XDG_CONFIG_HOME/cortex/config.yaml)
-    config_dir = Path(tmp_path) / "cortex"
+    # Create config that points to this vault (cor reads $XDG_CONFIG_HOME/cor/config.yaml)
+    config_dir = Path(tmp_path) / "cor"
     config_dir.mkdir(parents=True, exist_ok=True)
     config_file = config_dir / "config.yaml"
     config_file.write_text(f"vault: {vault}\n")
@@ -97,7 +97,7 @@ type: note
 ---
 modified: {today}
 ---
-# Cortex
+# Cor
 """)
 
     # Create backlog.md
@@ -267,7 +267,7 @@ def run_precommit(vault: Path) -> tuple[int, str, str]:
         cwd=vault,
         capture_output=True,
         text=True,
-        env={**os.environ, "CORTEX_VAULT": str(vault)}
+        env={**os.environ, "COR_VAULT": str(vault)}
     )
     return result.returncode, result.stdout, result.stderr
 

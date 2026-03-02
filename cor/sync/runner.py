@@ -1,4 +1,4 @@
-"""Maintenance operations for cortex notes.
+"""Maintenance operations for Cor notes.
 
 This module contains file manipulation operations that can be run:
 - Automatically via pre-commit hook

@@ -1,4 +1,4 @@
-"""Backlog logging command for Cortex CLI."""
+"""Backlog logging command for Cor CLI."""
 
 from datetime import datetime
 

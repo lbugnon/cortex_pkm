@@ -1,4 +1,4 @@
-"""Configuration commands for Cortex CLI."""
+"""Configuration commands for Cor CLI."""
 
 import os
 from pathlib import Path
@@ -28,7 +28,7 @@ from ..utils import get_notes_dir, require_init
 @click.argument("key", type=click.Choice(["verbosity", "vault", "inbox", "timezone"]), required=False)
 @click.argument("value", required=False)
 def config_cmd(key: str | None, value: str | None):
-    """Manage CortexPKM configuration.
+    """Manage Cor configuration.
 
     View or modify global settings for verbosity, vault location, timezone, and remote inbox.
 
@@ -50,7 +50,7 @@ def config_cmd(key: str | None, value: str | None):
     # Show all config if no key provided
     if key is None:
         config_data = load_config()
-        click.echo(click.style("Cortex Configuration", bold=True))
+        click.echo(click.style("Cor Configuration", bold=True))
         click.echo(config_data)
         click.echo()
         

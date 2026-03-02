@@ -1,4 +1,4 @@
-"""Utility functions for Cortex CLI."""
+"""Utility functions for Cor CLI."""
 
 import functools
 import os
@@ -334,7 +334,7 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
 def parse_checklist_items(content: str) -> list[tuple[str, str, str]]:
     """Parse checklist items from markdown content.
     
-    Extracts task names and their status from checklist items with any Cortex status symbol.
+    Extracts task names and their status from checklist items with any Cor status symbol.
     Uses STATUS_SYMBOLS from schema.py to recognize symbols.
     
     Args:
@@ -395,7 +395,7 @@ def parse_checklist_items(content: str) -> list[tuple[str, str, str]]:
 def remove_checklist_items(content: str) -> str:
     """Remove all checklist items from markdown content.
     
-    Removes checklist items with any Cortex status symbol.
+    Removes checklist items with any Cor status symbol.
     Uses STATUS_SYMBOLS from schema.py.
     
     Args:

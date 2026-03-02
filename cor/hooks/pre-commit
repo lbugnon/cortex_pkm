@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-commit hook for cortex notes.
+"""Pre-commit hook for Cor notes.
 
 This hook validates and maintains the knowledge structure:
 1. Validates frontmatter against schema
@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 
-def get_cortex_python() -> Path | None:
+def get_cor_python() -> Path | None:
     """Find the Python interpreter from the cor command."""
     try:
         result = subprocess.run(
@@ -37,12 +37,12 @@ def get_cortex_python() -> Path | None:
 
 
 # First try: use the Python from the cor command's environment
-cortex_python = get_cortex_python()
-if cortex_python and cortex_python.exists():
+cor_python = get_cor_python()
+if cor_python and cor_python.exists():
     # We're being run by git with system Python, but cor is installed
     # in a different Python environment. Re-exec with that Python.
-    if Path(sys.executable) != cortex_python:
-        result = subprocess.run([str(cortex_python), __file__] + sys.argv[1:])
+    if Path(sys.executable) != cor_python:
+        result = subprocess.run([str(cor_python), __file__] + sys.argv[1:])
         sys.exit(result.returncode)
 
 # Second try: normal import (works when cor is in the same environment)

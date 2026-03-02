@@ -1,7 +1,7 @@
-"""Textual TUI components for Cortex PKM.
+"""Textual TUI components for Cor.
 
 This package provides interactive terminal user interfaces
-for browsing and managing Cortex PKM vaults.
+for browsing and managing Cor vaults.
 """
 
 from .tree_app import ProjectTreeApp

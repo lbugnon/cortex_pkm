@@ -1,4 +1,4 @@
-"""Initialization commands for Cortex CLI."""
+"""Initialization commands for Cor CLI."""
 
 import subprocess
 import stat
@@ -120,7 +120,7 @@ def _setup_telegram():
 @click.option("--with-calendar", is_flag=True, default=False, help="Set up Google Calendar integration")
 @click.option("--with-telegram", is_flag=True, default=False, help="Set up Telegram inbox integration")
 def init(ctx, yes: bool, with_calendar: bool, with_telegram: bool):
-    """Initialize a new Cortex vault.
+    """Initialize a new Cor vault.
     
     Creates the vault structure (notes/, templates/, root.md, backlog.md).
     Initializes git repository if not already present.
@@ -132,7 +132,7 @@ def init(ctx, yes: bool, with_calendar: bool, with_telegram: bool):
     """
     # Ask for confirmation to set this directory as vault
     vault_path = Path.cwd()
-    log_info(f"Initializing Cortex vault in: {vault_path}")
+    log_info(f"Initializing Cor vault in: {vault_path}")
     if not yes:
         if not click.confirm("Continue?", default=True):
             click.echo("Aborted.")
@@ -177,7 +177,7 @@ def init(ctx, yes: bool, with_calendar: bool, with_telegram: bool):
             path.write_text(content)
             log_verbose(f"Created {path}")
 
-    log_info("Cortex vault initialized.")
+    log_info("Cor vault initialized.")
 
     # Optional: Google Calendar integration
     if with_calendar or (not yes and click.confirm("Set up Google Calendar integration?", default=False)):
@@ -190,7 +190,7 @@ def init(ctx, yes: bool, with_calendar: bool, with_telegram: bool):
     # Create default .gitignore if not exists
     gitignore_path = vault_path / ".gitignore"
     if not gitignore_path.exists():
-        gitignore_content = """# CortexPKM - Ignore temporal files
+        gitignore_content = """# Cor - Ignore temporal files
 # Files starting with . or # are considered temporal/backup files
 .*
 #*
@@ -209,8 +209,8 @@ def init(ctx, yes: bool, with_calendar: bool, with_telegram: bool):
         # Initialize git repository
         log_verbose("Initializing git repository...")
         subprocess.run(["git", "init"], cwd=vault_path, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "CortexPKM"], cwd=vault_path, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "cortex@local"], cwd=vault_path, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Cor"], cwd=vault_path, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "cor@local"], cwd=vault_path, capture_output=True)
         log_info("Git repository initialized.")
     
     # Install git hooks
@@ -224,7 +224,7 @@ def init(ctx, yes: bool, with_calendar: bool, with_telegram: bool):
 @cli.command()
 @click.pass_context
 def example_vault(ctx):
-    """Create a comprehensive example vault to demonstrate CortexPKM features.
+    """Create a comprehensive example vault to demonstrate Cor features.
     
     This command will create a sample vault with:
     - Multiple projects with different statuses
@@ -234,7 +234,7 @@ def example_vault(ctx):
     - Standalone notes
     - Academic references (papers from CrossRef)
     
-    Perfect for exploring CortexPKM capabilities and learning the workflow.
+    Perfect for exploring Cor capabilities and learning the workflow.
     """
     notes_dir = get_notes_dir()
     

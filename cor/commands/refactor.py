@@ -1,4 +1,4 @@
-"""File refactoring commands for Cortex CLI (rename, group)."""
+"""File refactoring commands for Cor CLI (rename, group)."""
 
 import re
 import shutil

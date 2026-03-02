@@ -453,7 +453,7 @@ class ProjectTreeApp(App):
             if not parts:
                 return
             
-            task_name = parts[0]  # e.g., "cortex.group.taskname"
+            task_name = parts[0]  # e.g., "cor.group.taskname"
             extra_text = parts[1:]  # e.g., ["this", "is", "description", "due", "tomorrow"]
             
             import subprocess

@@ -1,4 +1,4 @@
-"""Remote inbox via Telegram bot for Cortex CLI."""
+"""Remote inbox via Telegram bot for Cor CLI."""
 
 import json
 from datetime import datetime

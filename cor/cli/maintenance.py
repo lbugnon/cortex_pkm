@@ -1,4 +1,4 @@
-"""Maintenance, sync, and refactoring commands for Cortex CLI."""
+"""Maintenance, sync, and refactoring commands for Cor CLI."""
 
 import os
 import subprocess
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from ..exceptions import CortexError, NotInitializedError, ExternalServiceError
+from ..exceptions import CorError, NotInitializedError, ExternalServiceError
 from . import cli, _install_pre_commit_hook, _install_shell_completion, _uninstall_pre_commit_hook
 from ..completions import complete_existing_name
 from ..utils import get_notes_dir, require_init, log_info
@@ -62,7 +62,7 @@ def sync(message: str | None, no_push: bool, no_pull: bool, autostash: bool, ful
                 click.echo(click.style(f"Pulled {added} items from Telegram inbox", fg="cyan"))
             elif full_sync:
                 click.echo(click.style("No new messages in Telegram inbox", fg="green"))
-        except CortexError as e:
+        except CorError as e:
             # Non-fatal: continue with git sync even if inbox pull fails
             click.echo(click.style(f"Inbox pull failed: {e}", fg="yellow"), err=True)
 
@@ -73,7 +73,7 @@ def sync(message: str | None, no_push: bool, no_pull: bool, autostash: bool, ful
             from ..commands.calendar import sync as calendar_sync_cmd
             # Create a new context for the calendar sync command
             ctx = click.get_current_context()
-            ctx.invoke(calendar_sync_cmd, calendar="Cortex Tasks")
+            ctx.invoke(calendar_sync_cmd, calendar="Cor Tasks")
         except Exception as e:
             # Non-fatal: continue with git sync even if calendar sync fails
             click.echo(click.style(f"Calendar sync failed: {e}", fg="yellow"), err=True)
@@ -361,7 +361,7 @@ def hooks_install():
 
 @hooks.command("uninstall")
 def hooks_uninstall():
-    """Remove cortex git hooks."""
+    """Remove Cor git hooks."""
     _uninstall_pre_commit_hook()
 
 

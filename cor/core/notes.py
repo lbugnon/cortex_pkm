@@ -1,4 +1,4 @@
-"""Note models for Cortex PKM.
+"""Note models for Cor.
 
 This module provides two note models:
 - NoteMetadata: Lightweight metadata-only model for operations

@@ -1,4 +1,4 @@
-"""Fuzzy search and interactive picker for Cortex CLI."""
+"""Fuzzy search and interactive picker for Cor CLI."""
 
 import sys
 from pathlib import Path

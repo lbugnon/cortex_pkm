@@ -1,4 +1,4 @@
-"""Interactive processing commands for Cortex CLI (process).
+"""Interactive processing commands for Cor CLI (process).
 """
 
 import re

@@ -2,7 +2,7 @@
 
 local function get_vault()
   if vim.env.COR_VAULT then return vim.env.COR_VAULT end
-  local cfg = vim.fn.expand("~/.config/cortex/config.yaml")
+  local cfg = vim.fn.expand("~/.config/cor/config.yaml")
   if vim.fn.filereadable(cfg) == 1 then
     for _, line in ipairs(vim.fn.readfile(cfg)) do
       local vault = line:match("^vault:%s*(.+)")
@@ -12,7 +12,7 @@ local function get_vault()
   return vim.fn.expand("~/vault")
 end
 
-local function insert_cortex_link(include_archive)
+local function insert_cor_link(include_archive)
   return function()
     local vault = get_vault()
     local files
@@ -74,8 +74,8 @@ end
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "markdown",
   callback = function()
-    vim.keymap.set("i", "<C-l>", insert_cortex_link(false), { buffer = true, desc = "Cor: insert note link" })
-    vim.keymap.set("i", "<C-S-l>", insert_cortex_link(true), { buffer = true, desc = "Cor: insert note link (with archive)" })
+    vim.keymap.set("i", "<C-l>", insert_cor_link(false), { buffer = true, desc = "Cor: insert note link" })
+    vim.keymap.set("i", "<C-S-l>", insert_cor_link(true), { buffer = true, desc = "Cor: insert note link (with archive)" })
     vim.keymap.set("n", "<leader>bl", show_backlinks, { buffer = true, desc = "Cor: show backlinks" })
   end,
 })
