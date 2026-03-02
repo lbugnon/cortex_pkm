@@ -1,4 +1,4 @@
-"""File iteration and I/O operations for Cortex PKM.
+"""File iteration and I/O operations for Cor.
 
 This module consolidates file iteration patterns that were repeated 20+ times
 across the codebase with inconsistent approaches.

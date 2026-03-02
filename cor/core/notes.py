@@ -1,4 +1,4 @@
-"""Note models for Cortex PKM.
+"""Note models for Cor.
 
 This module provides two note models:
 - NoteMetadata: Lightweight metadata-only model for operations
@@ -225,7 +225,9 @@ class Note(NoteMetadata):
 def _parse_date(value) -> Optional[datetime]:
     """Parse date from frontmatter.
 
-    Supports datetime objects, date objects, and string format.
+    Supports datetime objects, date objects, and string formats.
+    Date-only strings (YYYY-MM-DD) are parsed as datetime at midnight.
+    Datetime strings (YYYY-MM-DD HH:MM) preserve the time component.
 
     Args:
         value: Date value from frontmatter
@@ -240,9 +242,31 @@ def _parse_date(value) -> Optional[datetime]:
     if isinstance(value, date):
         return datetime(value.year, value.month, value.day)
     try:
+        # Try datetime format first (YYYY-MM-DD HH:MM)
         return datetime.strptime(value, DATE_TIME)
     except (ValueError, TypeError):
+        pass
+    try:
+        # Fall back to date-only format (YYYY-MM-DD)
+        return datetime.strptime(value, "%Y-%m-%d")
+    except (ValueError, TypeError):
         return None
+
+
+def _date_has_time(value: Optional[datetime]) -> bool:
+    """Check if a datetime value has a specific time (not just midnight).
+    
+    Used to determine if calendar events should be all-day or timed events.
+    
+    Args:
+        value: datetime value to check
+        
+    Returns:
+        True if the value has a non-midnight time, False otherwise
+    """
+    if value is None:
+        return False
+    return value.hour != 0 or value.minute != 0
 
 
 def parse_note(path: Path, metadata_only: bool = False):

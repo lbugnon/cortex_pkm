@@ -1,4 +1,4 @@
-"""Interactive processing commands for Cortex CLI (process).
+"""Interactive processing commands for Cor CLI (process).
 """
 
 import re
@@ -6,6 +6,7 @@ import shutil
 
 import click
 
+from ..exceptions import NotFoundError
 from ..utils import (
     get_notes_dir,
     get_projects,
@@ -41,7 +42,7 @@ def process():
 
     backlog_path = notes_dir / "backlog.md"
     if not backlog_path.exists():
-        raise click.ClickException("No backlog.md found. Run 'cor init' first.")
+        raise NotFoundError("No backlog.md found. Run 'cor init' first.")
 
     # Parse backlog items (lines starting with - in ## Inbox section)
     content = backlog_path.read_text()

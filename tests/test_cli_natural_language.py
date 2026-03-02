@@ -160,3 +160,117 @@ class TestNewCommandNaturalLanguage:
         assert "just a normal task description" in post.content
         # Due field may exist in template but should be None
         assert post.get("due") is None
+
+    def test_new_task_with_status(self, runner, initialized_vault, monkeypatch):
+        """cor new task should parse status from text."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project first
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+
+        # Create task with status
+        result = runner.invoke(
+            cli,
+            ["new", "task", "myproj.mytask", "implement", "feature", "mark", "active", "--no-edit"]
+        )
+        assert result.exit_code == 0, f"New task failed: {result.output}"
+        
+        # Verify the task was created
+        task_path = initialized_vault / "myproj.mytask.md"
+        assert task_path.exists()
+        
+        # Verify the description and status
+        post = frontmatter.load(task_path)
+        assert "implement feature" in post.content
+        assert "status" in post.metadata
+        assert post["status"] == "active"
+
+    def test_new_task_with_status_and_tags(self, runner, initialized_vault, monkeypatch):
+        """cor new task should parse both status and tags."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project first
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+
+        # Create task with status and tags
+        result = runner.invoke(
+            cli,
+            ["new", "task", "myproj.mytask", "fix", "bug", "mark", "blocked", "tag", "urgent", "--no-edit"]
+        )
+        assert result.exit_code == 0, f"New task failed: {result.output}"
+        
+        # Verify the task was created
+        task_path = initialized_vault / "myproj.mytask.md"
+        assert task_path.exists()
+        
+        # Verify the description, status, and tags
+        post = frontmatter.load(task_path)
+        assert "fix bug" in post.content
+        assert "status" in post.metadata
+        assert post["status"] == "blocked"
+        assert "tags" in post.metadata
+        assert "urgent" in post["tags"]
+
+    def test_new_task_with_all_nlp_features(self, runner, initialized_vault, monkeypatch):
+        """cor new task should parse due date, tags, and status together."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project first
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+
+        # Create task with due date, tags, and status
+        result = runner.invoke(
+            cli,
+            ["new", "task", "myproj.mytask", "deploy", "app", "due", "tomorrow", "mark", "active", "tag", "production", "--no-edit"]
+        )
+        assert result.exit_code == 0, f"New task failed: {result.output}"
+        
+        # Verify the task was created
+        task_path = initialized_vault / "myproj.mytask.md"
+        assert task_path.exists()
+        
+        # Verify the description, due date, status, and tags
+        post = frontmatter.load(task_path)
+        assert "deploy app" in post.content
+        assert "due" in post.metadata
+        assert "status" in post.metadata
+        assert post["status"] == "active"
+        assert "tags" in post.metadata
+        assert "production" in post["tags"]
+
+    def test_new_task_with_only_due_date_no_description(self, runner, initialized_vault, monkeypatch):
+        """cor new task should work when text only contains natural language keywords.
+        
+        This tests the case where the user provides text like 'due tonight' which
+        gets entirely consumed by natural language parsing, leaving empty cleaned_text.
+        The due date should be set, and the editor should NOT open (user provided text).
+        """
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project first
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+
+        # Create task with only due date keyword (no actual description text)
+        result = runner.invoke(
+            cli,
+            ["new", "task", "myproj.mytask", "due", "tomorrow", "--no-edit"]
+        )
+        assert result.exit_code == 0, f"New task failed: {result.output}"
+        
+        # Verify the task was created
+        task_path = initialized_vault / "myproj.mytask.md"
+        assert task_path.exists()
+        
+        # Verify the due date is set (the important part!)
+        post = frontmatter.load(task_path)
+        assert "due" in post.metadata
+        assert post.metadata["due"] is not None
+        
+        # Due date should be approximately tomorrow
+        due_date = datetime.strptime(post["due"], "%Y-%m-%d %H:%M")
+        tomorrow = datetime.now() + timedelta(days=1)
+        assert abs((due_date - tomorrow).days) <= 1
+        
+        # The description should NOT contain "due tomorrow" text
+        # (it may be empty or have just the placeholder)
+        assert "due tomorrow" not in post.content.lower()

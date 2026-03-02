@@ -1,6 +1,6 @@
 """Vault configuration and path resolution.
 
-This module reads and writes a YAML config at ~/.config/cortex/config.yaml
+This module reads and writes a YAML config at ~/.config/cor/config.yaml
 to store the active vault and other user preferences. 
 """
 
@@ -8,6 +8,13 @@ import os
 from pathlib import Path
 
 import yaml
+
+from .exceptions import ConfigError
+
+
+def get_config_path() -> Path:
+    """Return the path to the config file."""
+    return _config_file()
 
 
 def _config_dir() -> Path:
@@ -17,7 +24,7 @@ def _config_dir() -> Path:
         base = Path(xdg)
     else:
         base = Path.home() / ".config"
-    return base / "cortex"
+    return base / "cor"
 
 
 def _config_file() -> Path:
@@ -37,20 +44,26 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
-    """Save config to the config file, creating directories as needed."""
+    """Save config to the config file, creating directories as needed.
+    
+    Sets file permissions to 0o600 (owner read/write only) for security.
+    """
     cfg_dir = _config_dir()
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    _config_file().write_text(yaml.dump(config, default_flow_style=False))
+    cfg_file = _config_file()
+    cfg_file.write_text(yaml.dump(config, default_flow_style=False))
+    # Restrict permissions: owner read/write only
+    os.chmod(cfg_file, 0o600)
 
 
 def get_vault_path() -> Path:
     """Get vault path from config file.
 
-    Raises ValueError if not configured.
+    Raises ConfigError if not configured.
     """
     config = load_config()
     if "vault" not in config or not config["vault"]:
-        raise ValueError(
+        raise ConfigError(
             "Vault path not configured. Run 'cor config set vault /path/to/notes' first."
         )
     return Path(config["vault"])
@@ -78,7 +91,7 @@ def get_verbosity() -> int:
 def set_verbosity(level: int) -> None:
     """Save verbosity level to config file (0-3)."""
     if not 0 <= level <= 3:
-        raise ValueError("Verbosity level must be between 0 and 3")
+        raise ConfigError("Verbosity level must be between 0 and 3")
     config = load_config()
     config["verbosity"] = level
     save_config(config)
@@ -87,3 +100,73 @@ def set_verbosity(level: int) -> None:
 def config_file() -> Path:
     """Return the current config file path."""
     return _config_file()
+
+
+def get_remote_inbox() -> str | None:
+    """Get Telegram bot token for remote inbox.
+
+    Returns token from config file or TELEGRAM_BOT_TOKEN env var, or None if not configured.
+    """
+    # Check environment variable first
+    env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if env_token:
+        return env_token
+
+    # Fall back to config file
+    config = load_config()
+    return config.get("remote_inbox")
+
+
+def set_remote_inbox(bot_token: str) -> None:
+    """Save Telegram bot token to config file."""
+    config = load_config()
+    config["remote_inbox"] = bot_token
+    save_config(config)
+
+
+def get_focused_project() -> str | None:
+    """Get the currently focused project from config.
+    
+    Returns project name or None if no focus set.
+    """
+    config = load_config()
+    return config.get("focused_project")
+
+
+def set_focused_project(project: str) -> None:
+    """Set the focused project in config."""
+    config = load_config()
+    config["focused_project"] = project
+    save_config(config)
+
+
+def clear_focused_project() -> None:
+    """Clear the focused project from config."""
+    config = load_config()
+    if "focused_project" in config:
+        del config["focused_project"]
+        save_config(config)
+
+
+# Default timezone is UTC
+default_timezone = "UTC"
+
+
+def get_timezone() -> str:
+    """Get the timezone from config (default: UTC).
+    
+    Returns timezone string like 'America/Argentina/Buenos_Aires' or 'UTC'.
+    """
+    config = load_config()
+    return config.get("timezone", default_timezone)
+
+
+def set_timezone(timezone: str) -> None:
+    """Set the timezone in config.
+    
+    Args:
+        timezone: Timezone string like 'America/Argentina/Buenos_Aires'
+    """
+    config = load_config()
+    config["timezone"] = timezone
+    save_config(config)

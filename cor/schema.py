@@ -1,4 +1,4 @@
-"""Schema constants for cortex notes.
+"""Schema constants for Cor notes.
 
 Reads valid values directly from schema.yaml.
 """

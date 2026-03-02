@@ -1,8 +1,17 @@
-# CortexPKM
+<div align="center">
 
-Plain text knowledge management. Track projects, tasks, ideas, and progress using markdown files and git.
+<img src="logo.png" alt="Cor Logo" width="120" height="120">
 
-Small new year project to try new coding agents :)
+
+**Plain text knowledge management for the terminal**
+
+[![PyPI](https://img.shields.io/pypi/v/cor-text)](https://pypi.org/project/cor-text/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+Track projects, tasks, ideas, and progress using markdown files and git.
+
 
 ## Philosophy
 
@@ -13,8 +22,28 @@ Small new year project to try new coding agents :)
 ## Installation
 
 ```bash
+pip install cor-text
+```
+
+Or install from source:
+
+```bash
 pip install -e .
 ```
+
+### Dependencies
+
+- **ripgrep** (rg) - Required for content search (`cor search`)
+  ```bash
+  # Ubuntu/Debian
+  sudo apt-get install ripgrep
+
+  # Arch Linux
+  sudo pacman -S ripgrep
+  
+  # Via conda
+  conda install -c conda-forge ripgrep
+  ```
 
 ## Development
 
@@ -135,7 +164,7 @@ tags: [coding, urgent]
 | `cor expand <task>` | Expand task checklist into individual subtasks |
 | `cor edit <name>` | Open existing file in editor (use `-a` to include archived) |
 | `cor mark <name> <status>` | Change task status (todo, active, blocked, done, dropped) |
-| `cor sync` | Pull, commit all changes, and push to remote |
+| `cor sync` | Pull, commit all changes, and push to remote (`--no-pull`, `--autostash`) |
 | `cor daily [tag]` | Show today's tasks; when `tag` is provided, only tasks matching the tag (by project name, task tags, or project tags) |
 | `cor weekly` | Show this week's summary |
 | `cor projects` | List active projects with status and last activity (from children) |
@@ -148,8 +177,79 @@ tags: [coding, urgent]
 | `cor hooks install` | Install pre-commit hook and shell completion |
 | `cor hooks uninstall` | Remove git hooks |
 | `cor config vault <path>` | Set global vault path |
+| `cor config inbox <token>` | Configure Telegram bot for mobile inbox |
 | `cor config` | Show current configuration |
+| `cor inbox` | Test Telegram connection and show pending messages |
+| `cor calendar auth` | Authenticate with Google Calendar |
+| `cor calendar sync` | Sync due dates to Google Calendar |
+| `cor calendar status` | Check calendar authentication status |
+| `cor calendar logout` | Remove Google Calendar credentials |
 | `cor maintenance sync` | Manually run archive/status sync |
+| `cor search <query>` | Full-text content search (supports filters: `status:`, `#tag`, `project:`) |
+
+### Bulk Operations
+
+Perform operations on multiple files at once using glob patterns:
+
+```bash
+# Bulk status update
+cor mark "project.*" done              # Mark all project tasks as done
+cor mark "project.group.*" active      # Mark group tasks as active
+cor mark -s done "project.*"           # Alternative syntax with --status flag
+
+# Bulk move/rename  
+cor move "project.old-*" "project.new-*"    # Rename matching tasks
+cor move "p1.*" "p2.*"                        # Move all tasks to different project
+cor move "*.old.*" "*.new.*" --dry-run        # Preview changes without applying
+```
+
+**Pattern wildcards:**
+- `*` matches any sequence of characters
+- `?` matches a single character
+- `[abc]` matches any character in brackets
+
+**Confirmation:** Operations affecting more than 3 files require confirmation. Use `--dry-run` to preview changes first.
+
+### Search
+
+Full-text content search using ripgrep (fast, no indexing required):
+
+```bash
+# Basic content search
+cor search "neural network"
+
+# Search with filters
+cor search "status:active ML"
+cor search "#urgent"
+cor search "project:foundation_model"
+
+# Include archived files
+cor search "experiments" -a
+
+# Limit results
+cor search "training" -n 50
+
+# Compact output (no context lines)
+cor search "TODO" --no-context
+```
+
+### Sync & Conflict Resolution
+
+When working across multiple machines, sync conflicts can occur:
+
+```bash
+# Normal sync (pull → commit → push)
+cor sync
+
+# Skip pull (commit local changes only)
+cor sync --no-pull
+
+# Auto-stash local changes, pull, then restore
+cor sync --autostash
+
+# Commit only, don't push
+cor sync --no-push
+```
 
 ### Natural Language Dates and Tags
 
@@ -227,7 +327,7 @@ cor ref add 10.1101/2025.07.24.666581 --key smith2026transformers --tags ml --ta
 
 ### Vault Path Setup
 
-Cortex automatically configures your vault path in `~/.config/cortex/config.yaml` when you run `cor init`. You can change it anytime:
+Cor automatically configures your vault path in `~/.config/cor/config.yaml` when you run `cor init`. You can change it anytime:
 
 ```bash
 # Set during initial setup
@@ -248,11 +348,12 @@ cor new task my-project.quick-idea
 
 ### Config File Format
 
-`~/.config/cortex/config.yaml`:
-
+`~/.config/cor/config.yaml`:
 ```yaml
 vault: /home/user/notes        # Vault path (required)
 verbosity: 1                   # 0=silent, 1=normal, 2=verbose, 3=debug
+remote_inbox: 123456:ABC...    # Telegram bot token (optional)
+```
 ```
 
 ### Configuration Commands
@@ -261,11 +362,86 @@ verbosity: 1                   # 0=silent, 1=normal, 2=verbose, 3=debug
 cor config                # Display current config
 cor config vault <path>   # Set vault path
 cor config verbosity <0-3> # Set verbosity level
+cor config inbox <token>  # Configure Telegram inbox
 ```
+
+### Mobile Inbox via Telegram
+
+Capture notes from your phone by sending messages to a Telegram bot. Messages are automatically pulled into your backlog during `cor sync`.
+
+#### Setup (2 minutes)
+
+1. **Create a Telegram bot**:
+   - Open Telegram and message [@BotFather](https://t.me/BotFather)
+   - Send `/newbot` and follow the prompts to create your bot
+   - Copy the bot token (looks like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
+
+2. **Configure Cortex**:
+   ```bash
+   cor config inbox <your-bot-token>
+   ```
+
+3. **Initialize the bot**:
+   - Find your bot in Telegram (search for the username you created)
+   - Send `/start` to your bot
+   - Send a test message
+
+4. **Test the connection**:
+   ```bash
+   cor inbox  # Shows pending messages
+   ```
+
+5. **Sync to pull messages**:
+   ```bash
+   cor sync   # Pulls messages into backlog and clears them from Telegram
+   ```
+
+
+### Google Calendar Integration
+
+Sync task due dates to Google Calendar. Events are created automatically when you run `cor sync` (if authenticated).
+
+2. **Authenticate**:
+   ```bash
+   cor calendar auth
+   ```
+   - This opens a browser for Google sign-in
+   - Grant permission to manage your calendar
+   - The refresh token is stored securely (you won't need to do this again)
+
+3. **Verify**:
+   ```bash
+   cor calendar status   # Should show "✓ Authenticated"
+   ```
+
+#### Usage
+
+```bash
+# Sync due dates manually
+cor calendar sync
+
+# Sync to a different calendar
+cor calendar sync -c "My Work Calendar"
+
+# Check authentication status
+cor calendar status
+
+# Logout and remove stored credentials
+cor calendar logout
+```
+
+**Auto-sync**: When you run `cor sync`, calendar events are updated automatically if you're authenticated.
+
+**How it works**:
+- Creates events for tasks with `due:` dates that are not done/dropped
+- Updates existing events when due dates change
+- Creates a "Cor Tasks" calendar if it doesn't exist
+- Events include task status in the title: `[active] Task name`
+
 
 ### File Hierarchy & Linking
 
-Cortex uses **dot notation** for hierarchy: `project.group.task.md`
+Cor uses **dot notation** for hierarchy: `project.group.task.md`
 
 **Forward links** (parent → children):
 ```markdown
@@ -367,7 +543,8 @@ source ~/.zshrc # or .bashrc
 
 ```
 ~/.config/cortex/
-└── config.yaml             # Global config (vault path, verbosity)
+├── config.yaml             # Global config (vault path, verbosity)
+└── google_credentials.pickle  # Google Calendar auth (chmod 600)
 
 ~/.zshrc or ~/.bashrc       # Shell completion automatically added here
 
@@ -390,7 +567,7 @@ your-vault/                 # Your notes directory
 ### Project Source (Development)
 
 ```
-cortex_pkm/                 # Repository root
+cor/                        # Repository root
 ├── cor/                    # Main package
 │   ├── __init__.py
 │   ├── cli.py              # Command-line interface

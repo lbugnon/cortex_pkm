@@ -1,4 +1,4 @@
-"""Maintenance operations for cortex notes.
+"""Maintenance operations for Cor notes.
 
 This module contains file manipulation operations that can be run:
 - Automatically via pre-commit hook
@@ -15,7 +15,7 @@ from typing import Any
 import frontmatter
 
 from ..schema import VALID_PRIORITY, VALID_PROJECT_STATUS, VALID_TASK_STATUS, STATUS_SYMBOLS
-from ..core.links import LinkManager, LinkPatterns, is_external_link as is_external_link_core
+from ..core.links import LinkManager, LinkPatterns
 from ..core.archive import ArchiveManager
 from ..core.files import FileIterator, NoteFileManager
 
@@ -254,14 +254,14 @@ def validate_links(filepath: str, notes_dir: Path) -> list[str]:
     for match in LinkPatterns.LINK.finditer(content):
         link_text, target = match.groups()
 
-        if is_external_link_core(target):
+        if target.startswith(LinkPatterns.EXTERNAL_PREFIXES):
             continue
         # Build target absolute path - handle relative paths correctly
-        # If the link starts with ../, resolve it relative to the file's directory
+        # Link targets already contain .md extension
         if "../" in target:
-            target_path = (path.parent / (target + ".md"))
+            target_path = (path.parent / target)
         else:
-            target_path = (base_dir / (target + ".md"))
+            target_path = (base_dir / target)
         
         if not target_path.exists():
             errors.append(f"Broken link: [{link_text}]({target}) -> file {target_path} not found")
@@ -619,7 +619,7 @@ class MaintenanceRunner:
         new_content = content
 
         if to_archive:
-            # First: convert (archive/foo) to (foo) - now siblings in archive
+            # First: convert (archive/foo.md) to (foo.md) - now siblings in archive
             pattern1 = r'(\[[^\]]+\]\()archive/([^)]+)(\))'
             replacement1 = r'\g<1>\g<2>\g<3>'
             new_content = re.sub(pattern1, replacement1, new_content)
@@ -630,14 +630,12 @@ class MaintenanceRunner:
                 target = match.group(2)
                 suffix = match.group(3)
 
-                if is_external_link_core(target) or target.startswith('../'):
+                if target.startswith(LinkPatterns.EXTERNAL_PREFIXES) or target.startswith('../'):
                     return match.group(0)
 
-                target_name = target.rstrip('.md')
-                if not target_name.endswith('.md'):
-                    target_file = f"{target_name}.md"
-                else:
-                    target_file = target_name
+                # target is e.g. "stem.md" — check if it exists in archive (sibling)
+                target_stem = target.removesuffix('.md')
+                target_file = f"{target_stem}.md"
                 archive_path = self.archive_dir / target_file
                 if archive_path.exists():
                     return match.group(0)
@@ -673,11 +671,11 @@ class MaintenanceRunner:
         parent_content = parent_path.read_text()
 
         if to_archive:
-            pattern = rf"(\[[^\]]+\]\()({re.escape(task_filename)})(\))"
-            replacement = rf"\g<1>archive/{task_filename}\g<3>"
+            pattern = rf"(\[[^\]]+\]\()({re.escape(task_filename)}\.md)(\))"
+            replacement = rf"\g<1>archive/{task_filename}.md\g<3>"
         else:
-            pattern = rf"(\[[^\]]+\]\()archive/({re.escape(task_filename)})(\))"
-            replacement = rf"\g<1>{task_filename}\g<3>"
+            pattern = rf"(\[[^\]]+\]\()archive/({re.escape(task_filename)}\.md)(\))"
+            replacement = rf"\g<1>{task_filename}.md\g<3>"
 
         new_content = re.sub(pattern, replacement, parent_content)
 
@@ -694,18 +692,20 @@ class MaintenanceRunner:
         children = self.find_children_files(parent_name)
 
         for child_path in children:
-            # Only process children in archive
-            if str(self.archive_dir) not in str(child_path):
+            # Only process children in archive (fix: use .parents check, not string match)
+            if self.archive_dir not in child_path.parents:
                 continue
 
             content = child_path.read_text()
 
             if to_archive:
-                pattern = rf'(\[[^\]]+\]\()\.\./{re.escape(parent_name)}(\))'
-                replacement = rf'\g<1>{parent_name}\g<2>'
+                # Parent moved to archive: child links go from (../parent.md) to (parent.md)
+                pattern = rf'(\[[^\]]+\]\()\.\./{re.escape(parent_name)}\.md(\))'
+                replacement = rf'\g<1>{parent_name}.md\g<2>'
             else:
-                pattern = rf'(\[[^\]]+\]\()(?!\.\./){re.escape(parent_name)}(\))'
-                replacement = rf'\g<1>../{parent_name}\g<2>'
+                # Parent moved from archive: child links go from (parent.md) to (../parent.md)
+                pattern = rf'(\[[^\]]+\]\()(?!\.\./){re.escape(parent_name)}\.md(\))'
+                replacement = rf'\g<1>../{parent_name}.md\g<2>'
 
             new_content = re.sub(pattern, replacement, content)
 
@@ -726,8 +726,8 @@ class MaintenanceRunner:
             children_in_archive.append(child_path.stem)
 
         for child_name in children_in_archive:
-            pattern = rf'(\[[^\]]+\]\()(?!archive/)({re.escape(child_name)})(\))'
-            replacement = rf'\g<1>archive/{child_name}\g<3>'
+            pattern = rf'(\[[^\]]+\]\()(?!archive/)({re.escape(child_name)}\.md)(\))'
+            replacement = rf'\g<1>archive/{child_name}.md\g<3>'
             new_content = re.sub(pattern, replacement, new_content)
 
         if new_content != content:
@@ -893,8 +893,8 @@ class MaintenanceRunner:
                 old_parent_path = self.find_parent_file(old_parent)
                 if old_parent_path:
                     content = old_parent_path.read_text()
-                    # Match: - [x] [Title](old_name) or - [x] [Title](archive/old_name)
-                    pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(old_name)}\)\n?'
+                    # Match: - [x] [Title](old_name.md) or - [x] [Title](archive/old_name.md)
+                    pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(old_name)}\.md\)\n?'
                     new_content = re.sub(pattern, '', content, flags=re.MULTILINE)
                     if new_content != content:
                         if not self.dry_run:
@@ -922,7 +922,7 @@ class MaintenanceRunner:
                             
                             # Determine if file is in archive
                             is_archived = 'archive/' in new_path or str(self.archive_dir) in str(renamed_file_path)
-                            link_target = f"archive/{new_name}" if is_archived else new_name
+                            link_target = f"archive/{new_name}.md" if is_archived else f"{new_name}.md"
                             task_entry = f"- {checkbox} [{task_title}]({link_target})"
                             
                             content = new_parent_path.read_text()
@@ -966,16 +966,16 @@ class MaintenanceRunner:
                     if new_parent_path:
                         new_parent_title = get_title_from_file(new_parent_path)
                         
-                        # Update backlink: [< Old Parent](old_parent) -> [< New Parent](new_parent)
+                        # Update backlink: [< Old Parent](old_parent.md) -> [< New Parent](new_parent.md)
                         # Handle both regular and archive paths
-                        old_backlink_pattern = rf'\[<[^\]]+\]\({re.escape(old_parent)}\)'
-                        old_backlink_archive_pattern = rf'\[<[^\]]+\]\(\.\.\/({re.escape(old_parent)})\)'
-                        
+                        old_backlink_pattern = rf'\[<[^\]]+\]\({re.escape(old_parent)}\.md\)'
+                        old_backlink_archive_pattern = rf'\[<[^\]]+\]\(\.\.\/({re.escape(old_parent)})\.md\)'
+
                         is_in_archive = str(self.archive_dir) in str(renamed_file_path)
                         if is_in_archive:
-                            new_backlink = f"[< {new_parent_title}](../{new_parent})"
+                            new_backlink = f"[< {new_parent_title}](../{new_parent}.md)"
                         else:
-                            new_backlink = f"[< {new_parent_title}]({new_parent})"
+                            new_backlink = f"[< {new_parent_title}]({new_parent}.md)"
                         
                         new_content = re.sub(old_backlink_pattern, new_backlink, content)
                         new_content = re.sub(old_backlink_archive_pattern, new_backlink, new_content)
@@ -997,8 +997,8 @@ class MaintenanceRunner:
                 parent_path = self.find_parent_file(new_parent)
                 if parent_path:
                     content = parent_path.read_text()
-                    pattern = rf'(\[[^\]]+\]\()(archive/)?{re.escape(old_name)}(\))'
-                    replacement = rf'\g<1>\g<2>{new_name}\g<3>'
+                    pattern = rf'(\[[^\]]+\]\()(archive/)?{re.escape(old_name)}\.md(\))'
+                    replacement = rf'\g<1>\g<2>{new_name}.md\g<3>'
                     new_content = re.sub(pattern, replacement, content)
 
                     if new_content != content:
@@ -1012,8 +1012,8 @@ class MaintenanceRunner:
                 old_children = self.find_children_files(old_name)
                 for child_path in old_children:
                     content = child_path.read_text()
-                    pattern = rf'(\[[^\]]+\]\()(\.\.\/)?{re.escape(old_name)}(\))'
-                    replacement = rf'\g<1>\g<2>{new_name}\g<3>'
+                    pattern = rf'(\[[^\]]+\]\()(\.\.\/)?{re.escape(old_name)}\.md(\))'
+                    replacement = rf'\g<1>\g<2>{new_name}.md\g<3>'
                     new_content = re.sub(pattern, replacement, content)
 
                     if new_content != content:
@@ -1057,8 +1057,8 @@ class MaintenanceRunner:
 
             content = parent_path.read_text()
 
-            # Remove task entry line: - [x] [Title](deleted_name) or - [x] [Title](archive/deleted_name)
-            pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(deleted_name)}\)\n?'
+            # Remove task entry line: - [x] [Title](deleted_name.md) or - [x] [Title](archive/deleted_name.md)
+            pattern = rf'^- \[[^\]]*\] \[[^\]]+\]\((?:archive/)?{re.escape(deleted_name)}\.md\)\n?'
             new_content = re.sub(pattern, '', content, flags=re.MULTILINE)
 
             if new_content != content:
@@ -1201,7 +1201,7 @@ class MaintenanceRunner:
                 continue
 
             # Handle unarchiving if needed
-            is_in_archive = str(self.archive_dir) in str(project_path)
+            is_in_archive = self.archive_dir in project_path.parents
             if is_in_archive and new_status == "active":
                 new_path = self.notes_dir / f"{project_name}.md"
                 if not self.dry_run:
@@ -1259,10 +1259,10 @@ class MaintenanceRunner:
 
             # Apply all task updates to this parent
             for task_stem, checkbox in tasks:
-                pattern = rf"(- )\[[x .o~]\]( \[[^\]]+\]\()(archive/)?{re.escape(task_stem)}(\))"
+                pattern = rf"(- )\[[x .o~]\]( \[[^\]]+\]\()(archive/)?{re.escape(task_stem)}\.md(\))"
                 new_content = re.sub(
                     pattern,
-                    rf"\g<1>{checkbox}\g<2>\g<3>{task_stem}\g<4>",
+                    rf"\g<1>{checkbox}\g<2>\g<3>{task_stem}.md\g<4>",
                     new_content,
                 )
 

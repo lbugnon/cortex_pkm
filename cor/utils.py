@@ -1,16 +1,18 @@
-"""Utility functions for Cortex CLI."""
+"""Utility functions for Cor CLI."""
 
 import functools
 import os
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import click
 from dateparser.search import search_dates
+from dateparser import parse as parse_date
 
 from .config import get_vault_path, get_verbosity
+from .exceptions import NotInitializedError, NotFoundError
 from .schema import DATE_TIME
 
 
@@ -20,7 +22,7 @@ def require_init(f):
     def wrapper(*args, **kwargs):
         notes_dir = get_vault_path()
         if not (notes_dir / "root.md").exists():
-            raise click.ClickException("Not initialized. Run 'cor init' first.")
+            raise NotInitializedError("Not initialized. Run 'cor init' first.")
         return f(*args, **kwargs)
     return wrapper
 
@@ -111,10 +113,9 @@ def get_all_notes() -> list[str]:
 
 def get_template(template_type: str) -> str:
     """Read a template file and return its contents."""
-    import click
     template_path = get_templates_dir() / f"{template_type}.md"
     if not template_path.exists():
-        raise click.ClickException(f"Template not found: {template_path}")
+        raise NotFoundError(f"Template not found: {template_path}")
     return template_path.read_text()
 
 
@@ -183,6 +184,41 @@ def format_title(name: str) -> str:
     return title[0].upper() + title[1:] if title else title
 
 
+def read_h1(path: Path) -> str | None:
+    """Read the first H1 heading from a markdown file.
+
+    Returns the title string (without the leading '# ') or None if not found.
+    """
+    try:
+        content = path.read_text()
+    except OSError:
+        return None
+    in_frontmatter = False
+    frontmatter_done = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not frontmatter_done:
+            if stripped == "---":
+                in_frontmatter = not in_frontmatter
+                if not in_frontmatter:
+                    frontmatter_done = True
+                continue
+            if in_frontmatter:
+                continue
+        if line.startswith("# "):
+            return line[2:].strip()
+    return None
+
+
+def title_to_stem(title: str) -> str:
+    """Convert a human-readable title back to a filename stem (reverse of format_title).
+
+    Examples: "Auth fix" -> "auth_fix", "Fix-bug" -> "fix-bug"
+    """
+    slug = title.lower().replace(" ", "_")
+    return re.sub(r'[^\w-]', '', slug).strip("_-")
+
+
 def render_template(
     template: str, name: str, parent: str | None = None, parent_title: str | None = None,
     message: str | None = None
@@ -193,7 +229,7 @@ def render_template(
     # Generate parent link if parent exists
     parent_link = ""
     if parent and parent_title:
-        parent_link = f"[< {parent_title}]({parent})"
+        parent_link = f"[< {parent_title}]({parent}.md)"
     
     content = template.format(
         date=now,
@@ -221,14 +257,39 @@ def open_in_editor(filepath: Path):
     """Open file in appropriate editor based on environment.
 
     - In VSCode terminal: opens with `code` command
-    - In regular terminal: opens with $EDITOR
+    - In regular terminal: opens with $EDITOR, or tries common editors
     """
     if is_vscode_terminal():
         # Use VSCode's code command
         subprocess.call(["code", str(filepath)])
-    else:
-        editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "nvim"
-        subprocess.call([editor, str(filepath)])
+        return
+
+    # Get editor from environment or try common editors
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+    
+    if editor:
+        # User has specified an editor, try to use it
+        try:
+            subprocess.call([editor, str(filepath)])
+            return
+        except FileNotFoundError:
+            click.echo(click.style(f"Warning: $EDITOR is set to '{editor}' but it's not found.", fg="yellow"))
+    
+    # Try common editors in order of preference
+    for fallback in ["nvim", "vim", "nano", "vi"]:
+        try:
+            subprocess.call([fallback, str(filepath)])
+            return
+        except FileNotFoundError:
+            continue
+    
+    # No editor found
+    click.echo(click.style("No editor found!", fg="red", bold=True))
+    click.echo("Tried: nvim, vim, nano, vi")
+    click.echo(f"\nTo fix this, either:")
+    click.echo("  1. Install an editor (e.g., apt install nano)")
+    click.echo("  2. Set $EDITOR environment variable: export EDITOR=/path/to/your/editor")
+    click.echo(f"\nFile location: {filepath}")
 
 
 def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
@@ -237,7 +298,7 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
         return
 
     content = project_path.read_text()
-    task_entry = f"- [ ] [{format_title(task_name)}]({task_filename})"
+    task_entry = f"- [ ] [{format_title(task_name)}]({task_filename}.md)"
 
     # Find Tasks section and add entry
     if "## Tasks" in content:
@@ -273,7 +334,7 @@ def add_task_to_project(project_path: Path, task_name: str, task_filename: str):
 def parse_checklist_items(content: str) -> list[tuple[str, str, str]]:
     """Parse checklist items from markdown content.
     
-    Extracts task names and their status from checklist items with any Cortex status symbol.
+    Extracts task names and their status from checklist items with any Cor status symbol.
     Uses STATUS_SYMBOLS from schema.py to recognize symbols.
     
     Args:
@@ -334,7 +395,7 @@ def parse_checklist_items(content: str) -> list[tuple[str, str, str]]:
 def remove_checklist_items(content: str) -> str:
     """Remove all checklist items from markdown content.
     
-    Removes checklist items with any Cortex status symbol.
+    Removes checklist items with any Cor status symbol.
     Uses STATUS_SYMBOLS from schema.py.
     
     Args:
@@ -386,43 +447,167 @@ def log_error(message: str) -> None:
     click.secho(message, fg="red", err=True)
 
 
-def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[str]]:
-    """Parse natural language text for due dates and tags.
+# Time keywords mapping for natural language date parsing
+_TIME_KEYWORDS = {
+    'morning': (9, 0),
+    'noon': (12, 0),
+    'afternoon': (14, 0),
+    'evening': (18, 0),
+    'night': (21, 0),
+}
+
+# Regex pattern to match time formats like "20pm", "20h", "20:00", "8pm", etc.
+# Captures hour (1-24) with optional minute, and optional am/pm/h suffix
+_TIME_PATTERN = re.compile(
+    r'\b(\d{1,2})(?::(\d{2}))?(pm|am|h)?\b',
+    re.IGNORECASE
+)
+
+
+def _extract_explicit_time(date_text: str) -> tuple[int, int] | None:
+    """Extract explicit time from text like '20pm', '20h', '8pm', '14:30'.
+    
+    Handles edge cases where users mix 24-hour format with am/pm (e.g., '20pm')
+    or use 'h' suffix (e.g., '20h'). Returns None if no valid time found.
+    
+    Skips relative time patterns like 'in 5h' which mean '5 hours from now'.
+    
+    Args:
+        date_text: The date text to extract time from
+        
+    Returns:
+        Tuple of (hour, minute) or None if no valid time found
+        
+    Examples:
+        >>> _extract_explicit_time('friday 20pm')
+        (20, 0)
+        >>> _extract_explicit_time('tomorrow 8pm')
+        (20, 0)
+        >>> _extract_explicit_time('next week 14:30')
+        (14, 30)
+        >>> _extract_explicit_time('friday 20h')
+        (20, 0)
+        >>> _extract_explicit_time('in 5h')  # relative time, skip
+        None
+    """
+    date_lower = date_text.lower()
+    
+    # Skip relative time patterns like "in 5h" (meaning "in 5 hours")
+    # These should be handled by dateparser's parse() function
+    if re.search(r'\bin\s+\d{1,2}h\b', date_lower):
+        return None
+    
+    matches = _TIME_PATTERN.findall(date_text)
+    
+    for hour_str, minute_str, suffix in matches:
+        hour = int(hour_str)
+        minute = int(minute_str) if minute_str else 0
+        suffix_lower = suffix.lower() if suffix else ''
+        
+        # Skip if hour is out of valid range
+        if hour < 1 or hour > 24:
+            continue
+            
+        # Handle am/pm suffix
+        if suffix_lower in ('pm', 'am'):
+            # Handle edge case: user wrote "20pm" (24h + pm suffix)
+            # We interpret this as 20:00 (8pm) - the pm is redundant but clear
+            if hour > 12:
+                # Already 24-hour format, pm is redundant, use hour as-is
+                pass
+            elif suffix_lower == 'pm' and hour != 12:
+                hour += 12
+            elif suffix_lower == 'am' and hour == 12:
+                hour = 0
+        
+        # 'h' suffix is just a marker (e.g., "20h" = 20:00)
+        # No adjustment needed for 'h' suffix
+        
+        # Cap at 23:59
+        if hour > 23:
+            hour = 23
+            
+        return (hour, minute)
+    
+    return None
+
+
+def _apply_time_keyword(date_text: str, parsed_date: datetime) -> datetime:
+    """Apply time from keywords (morning, afternoon, etc.) or explicit time to a parsed date.
+    
+    Args:
+        date_text: Original date text that was parsed
+        parsed_date: The datetime returned by dateparser
+        
+    Returns:
+        Datetime with time adjusted if a keyword or explicit time was found, otherwise original
+    """
+    date_lower = date_text.lower()
+    
+    # First check for explicit time patterns (e.g., "20pm", "8pm", "14:30")
+    explicit_time = _extract_explicit_time(date_text)
+    if explicit_time:
+        hour, minute = explicit_time
+        return parsed_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    # Then check for time keywords
+    for keyword, (hour, minute) in _TIME_KEYWORDS.items():
+        # Use word boundary to avoid matching "noon" inside "afternoon"
+        if re.search(r'\b' + keyword + r'\b', date_lower):
+            return parsed_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    return parsed_date
+
+
+def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[str], str | None]:
+    """Parse natural language text for due dates, tags, and status.
     
     Detects:
     - Due dates: "due <date>" or "due: <date>" where <date> can be natural language
+      Supports time precision: "due tomorrow 8pm", "due tomorrow morning", "due in 48h"
     - Tags: "tag <name>" or "tag: <name>" or multiple "tag <name1> <name2>"
+    - Status: "mark <status>" or "status <status>" where status is a valid task status
     
     Args:
-        text: Input text potentially containing due dates and tags
+        text: Input text potentially containing due dates, tags, and status
         
     Returns:
-        Tuple of (cleaned_text, due_date, tags) where:
-        - cleaned_text: text with due/tag specifications removed
+        Tuple of (cleaned_text, due_date, tags, status) where:
+        - cleaned_text: text with due/tag/mark specifications removed
         - due_date: parsed datetime object or None
         - tags: list of tag names
+        - status: parsed status (todo, active, blocked, done, waiting, dropped) or None
         
     Examples:
         >>> parse_natural_language_text("finish the pipeline due next friday")
-        ('finish the pipeline', datetime(...), [])
+        ('finish the pipeline', datetime(...), [], None)
         >>> parse_natural_language_text("fix bug tag urgent ml")
-        ('fix bug', None, ['urgent', 'ml'])
+        ('fix bug', None, ['urgent', 'ml'], None)
         >>> parse_natural_language_text("complete task due tomorrow tag:urgent")
-        ('complete task', datetime(...), ['urgent'])
+        ('complete task', datetime(...), ['urgent'], None)
+        >>> parse_natural_language_text("review due tomorrow 8pm")
+        ('review', datetime(...), [], None)  # Tomorrow at 20:00
+        >>> parse_natural_language_text("submit due tomorrow morning")
+        ('submit', datetime(...), [], None)  # Tomorrow at 09:00
+        >>> parse_natural_language_text("start work mark active")
+        ('start work', None, [], 'active')
     """
+    from .schema import VALID_TASK_STATUS
+    
     if not text:
-        return text, None, []
+        return text, None, [], None
     
     due_date = None
     tags = []
+    status = None
     cleaned_text = text
     
     # Pattern to match "due <date>" or "due: <date>"
     # Regex explanation:
     # - \bdue:?\s+ : Match "due" or "due:" followed by whitespace (word boundary before "due")
     # - (.+?) : Capture the date text (non-greedy)
-    # - (?=\s+tag(?:\b|:)|$) : Look ahead for "tag" keyword or end of string (don't capture)
-    due_pattern = r'\bdue:?\s+(.+?)(?=\s+tag(?:\b|:)|$)'
+    # - (?=\s+tag(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|$) : Look ahead for keywords or end
+    due_pattern = r'\bdue:?\s+(.+?)(?=\s+tag(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|$)'
     due_match = re.search(due_pattern, cleaned_text, re.IGNORECASE)
     
     if due_match:
@@ -439,16 +624,29 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
             # search_dates returns a list of tuples (date_string, datetime)
             # Take the first match
             due_date = result[0][1]
+        else:
+            # Fallback to parse for patterns search_dates misses (e.g., "in 5h")
+            due_date = parse_date(
+                due_text,
+                settings={
+                    'PREFER_DATES_FROM': 'future',
+                    'RETURN_AS_TIMEZONE_AWARE': False,
+                }
+            )
+        
+        if due_date:
+            # Apply time keywords (morning, afternoon, etc.) if present
+            due_date = _apply_time_keyword(due_text, due_date)
             # Remove the entire due specification from text
             cleaned_text = cleaned_text[:due_match.start()] + cleaned_text[due_match.end():]
             cleaned_text = cleaned_text.strip()
     
     # Pattern to match "tag <tag1> <tag2> ..." or "tag: <tag1> <tag2> ..."
     # Regex explanation:
-    # - \btag:?\s+ : Match "tag" or "tag:" followed by whitespace (word boundary before "tag")
+    # - \btag:?\s+ : Match "tag" or "tag:" followed by whitespace
     # - (.+?) : Capture the tag text (non-greedy)
-    # - (?=\s+due(?:\b|:)|$) : Look ahead for "due" keyword or end of string (don't capture)
-    tag_pattern = r'\btag:?\s+(.+?)(?=\s+due(?:\b|:)|$)'
+    # - (?=\s+due|...|$) : Look ahead for other keywords or end of string
+    tag_pattern = r'\btag:?\s+(.+?)(?=\s+due(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|$)'
     tag_match = re.search(tag_pattern, cleaned_text, re.IGNORECASE)
     
     if tag_match:
@@ -459,5 +657,220 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
         cleaned_text = cleaned_text[:tag_match.start()] + cleaned_text[tag_match.end():]
         cleaned_text = cleaned_text.strip()
     
-    return cleaned_text, due_date, tags
+    # Pattern to match "mark <status>" or "status <status>" or "mark: <status>" or "status: <status>"
+    # Valid statuses: todo, active, blocked, done, waiting, dropped
+    status_pattern = r'\b(?:mark|status):?\s+(\w+)(?=\s+due(?:\b|:)|\s+tag(?:\b|:)|$)'
+    status_match = re.search(status_pattern, cleaned_text, re.IGNORECASE)
+    
+    if status_match:
+        potential_status = status_match.group(1).lower()
+        if potential_status in VALID_TASK_STATUS:
+            status = potential_status
+            # Remove the entire mark/status specification from text
+            cleaned_text = cleaned_text[:status_match.start()] + cleaned_text[status_match.end():]
+            cleaned_text = cleaned_text.strip()
+    
+    return cleaned_text, due_date, tags, status
 
+
+# --- Glob pattern utilities for bulk operations ---
+
+def is_glob_pattern(pattern: str) -> bool:
+    """Check if a string contains glob wildcards.
+    
+    Args:
+        pattern: String to check
+        
+    Returns:
+        True if pattern contains *, ?, or [] wildcards
+    """
+    return any(c in pattern for c in ['*', '?', '['])
+
+
+def expand_glob_pattern(
+    pattern: str, 
+    notes_dir: Path, 
+    include_archive: bool = False
+) -> list[Path]:
+    """Expand a glob pattern to matching file paths.
+    
+    Args:
+        pattern: Glob pattern (e.g., "project.*.md")
+        notes_dir: Path to notes directory
+        include_archive: If True, also search archive directory
+        
+    Returns:
+        List of matching Path objects (sorted)
+    """
+    matches = []
+    
+    # Ensure pattern has .md extension if not already present
+    if not pattern.endswith('.md'):
+        pattern = f"{pattern}.md"
+    
+    # Search active directory
+    matches.extend(notes_dir.glob(pattern))
+    
+    # Search archive if requested
+    if include_archive:
+        archive_dir = notes_dir / "archive"
+        if archive_dir.exists():
+            matches.extend(archive_dir.glob(pattern))
+    
+    # Remove duplicates and sort
+    seen = set()
+    unique_matches = []
+    for path in matches:
+        if path not in seen:
+            seen.add(path)
+            unique_matches.append(path)
+    
+    return sorted(unique_matches)
+
+
+def expand_glob_to_stems(
+    pattern: str,
+    notes_dir: Path,
+    include_archive: bool = False
+) -> list[tuple[str, bool]]:
+    """Expand a glob pattern to matching file stems with archive status.
+    
+    Args:
+        pattern: Glob pattern (e.g., "project.*.md")
+        notes_dir: Path to notes directory
+        include_archive: If True, also search archive directory
+        
+    Returns:
+        List of (stem, is_archived) tuples
+    """
+    paths = expand_glob_pattern(pattern, notes_dir, include_archive)
+    archive_dir = notes_dir / "archive"
+    
+    results = []
+    for path in paths:
+        is_archived = archive_dir in path.parents or path.parent == archive_dir
+        results.append((path.stem, is_archived))
+    
+    return results
+
+
+def compute_bulk_rename(
+    source_pattern: str,
+    target_pattern: str,
+    notes_dir: Path,
+    include_archive: bool = False
+) -> list[tuple[Path, Path]]:
+    """Compute bulk rename operations from source pattern to target pattern.
+    
+    The target pattern can contain wildcards that mirror the source wildcards.
+    For example: "project.old-*.md" -> "project.new-*.md"
+    
+    Args:
+        source_pattern: Source glob pattern (e.g., "project.old-*.md")
+        target_pattern: Target pattern with wildcards (e.g., "project.new-*.md")
+        notes_dir: Path to notes directory
+        include_archive: If True, also search archive directory
+        
+    Returns:
+        List of (source_path, target_path) tuples
+        
+    Raises:
+        ValueError: If wildcards don't match between patterns
+    """
+    from fnmatch import fnmatch
+    
+    # Normalize patterns
+    if not source_pattern.endswith('.md'):
+        source_pattern = f"{source_pattern}.md"
+    if not target_pattern.endswith('.md'):
+        target_pattern = f"{target_pattern}.md"
+    
+    # Remove .md for wildcard analysis
+    source_stem_pattern = source_pattern[:-3]
+    target_stem_pattern = target_pattern[:-3]
+    
+    # Count wildcards in both patterns
+    source_wildcards = source_stem_pattern.count('*')
+    target_wildcards = target_stem_pattern.count('*')
+    
+    if source_wildcards != target_wildcards:
+        raise ValueError(
+            f"Wildcard mismatch: source has {source_wildcards} *, "
+            f"target has {target_wildcards} *. "
+            f"Patterns must have matching wildcards for bulk rename."
+        )
+    
+    if source_wildcards == 0:
+        raise ValueError(
+            "No wildcards found in patterns. Use regular rename for single files."
+        )
+    
+    # Find all matching source files
+    source_paths = expand_glob_pattern(source_pattern, notes_dir, include_archive)
+    
+    if not source_paths:
+        raise NotFoundError(f"No files match pattern: {source_pattern}")
+    
+    # Compute target paths for each source
+    renames = []
+    archive_dir = notes_dir / "archive"
+    
+    for src_path in source_paths:
+        src_stem = src_path.stem
+        
+        # Match source stem against pattern to extract wildcard values
+        # We use fnmatch to verify match, then compute the replacement
+        if not fnmatch(src_stem, source_stem_pattern):
+            continue
+        
+        # Compute target stem by replacing wildcards
+        # Strategy: split patterns by * and reconstruct
+        src_parts = source_stem_pattern.split('*')
+        tgt_parts = target_stem_pattern.split('*')
+        
+        # Extract wildcard values from source stem
+        values = []
+        remaining = src_stem
+        for i, part in enumerate(src_parts):
+            if part:
+                if i == 0:
+                    # First part - remove prefix
+                    if remaining.startswith(part):
+                        remaining = remaining[len(part):]
+                else:
+                    # Middle/end parts - extract up to this part
+                    idx = remaining.find(part)
+                    if idx >= 0:
+                        values.append(remaining[:idx])
+                        remaining = remaining[idx + len(part):]
+            elif i < len(src_parts) - 1:
+                # Empty part means consecutive * or * at start
+                # Find next non-empty part
+                next_part = src_parts[i + 1] if i + 1 < len(src_parts) else ""
+                if next_part:
+                    idx = remaining.find(next_part)
+                    if idx >= 0:
+                        values.append(remaining[:idx])
+                        remaining = remaining[idx:]
+        
+        # Handle trailing wildcard
+        if src_parts[-1] == '' or (len(src_parts) > 1 and src_parts[-2] == ''):
+            if remaining and (not values or remaining != values[-1]):
+                values.append(remaining)
+        
+        # Build target stem
+        tgt_stem = ""
+        value_idx = 0
+        for i, part in enumerate(tgt_parts):
+            tgt_stem += part
+            if i < len(tgt_parts) - 1 and value_idx < len(values):
+                tgt_stem += values[value_idx]
+                value_idx += 1
+        
+        # Determine target directory (same as source)
+        tgt_dir = src_path.parent
+        tgt_path = tgt_dir / f"{tgt_stem}.md"
+        
+        renames.append((src_path, tgt_path))
+    
+    return renames

@@ -109,7 +109,7 @@ class TestNew:
 
         content = (initialized_vault / "myproj.mytask.md").read_text()
         assert "parent: myproj" in content, "Task should have parent field"
-        assert "(myproj)" in content, "Task should have link to parent"
+        assert "(myproj.md)" in content, "Task should have link to parent"
 
     def test_new_task_added_to_project(self, runner, initialized_vault, monkeypatch):
         """New task should be added to project's Tasks section."""
@@ -119,7 +119,7 @@ class TestNew:
         runner.invoke(cli, ["new", "task", "myproj.mytask", "task work"])
 
         content = (initialized_vault / "myproj.md").read_text()
-        assert "(myproj.mytask)" in content, "Project should link to task"
+        assert "(myproj.mytask.md)" in content, "Project should link to task"
         assert "[ ]" in content, "Project should have todo checkbox for task"
 
     def test_new_task_creates_group_if_needed(self, runner, initialized_vault, monkeypatch):
@@ -152,7 +152,7 @@ class TestNew:
         
         # Verify task is added to immediate parent
         parent_content = (initialized_vault / "myproj.experiments.lr.md").read_text()
-        assert "(myproj.experiments.lr.sweep)" in parent_content, "Task should be linked in parent"
+        assert "(myproj.experiments.lr.sweep.md)" in parent_content, "Task should be linked in parent"
 
     def test_new_project_rejects_dots(self, runner, initialized_vault, monkeypatch):
         """Project names cannot contain dots."""
@@ -256,8 +256,8 @@ This is a feature with subtasks:
         
         # Check task file has links
         updated_content = task_file.read_text()
-        assert "(myproj.feature.api-work)" in updated_content
-        assert "(myproj.feature.test-work)" in updated_content
+        assert "(myproj.feature.api-work.md)" in updated_content
+        assert "(myproj.feature.test-work.md)" in updated_content
 
     def test_expand_subtasks_have_parent_link(self, runner, initialized_vault, monkeypatch):
         """Subtasks created by expand should link back to group."""
@@ -278,7 +278,7 @@ This is a feature with subtasks:
         subtask = initialized_vault / "myproj.feature.subtask1.md"
         content = subtask.read_text()
         assert "parent: myproj.feature" in content
-        assert "(myproj.feature)" in content
+        assert "(myproj.feature.md)" in content
 
     def test_expand_requires_task_file(self, runner, initialized_vault, monkeypatch):
         """cor expand should fail if task file doesn't exist."""
@@ -387,6 +387,37 @@ Mix of different statuses:
         
         dropped_task = frontmatter.load(initialized_vault / "myproj.feature.dropped-task.md")
         assert dropped_task['status'] == 'dropped'
+
+    def test_expand_truncates_long_filenames(self, runner, initialized_vault, monkeypatch):
+        """cor expand should truncate very long task names to avoid filesystem errors."""
+        monkeypatch.chdir(initialized_vault)
+
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.feature", "--no-edit"])
+        
+        task_file = initialized_vault / "myproj.feature.md"
+        post = frontmatter.load(task_file)
+        # Create a very long task name (>300 chars) that would exceed filename limits
+        long_name = "this-is-very-long-task-name-that-would-normally-exceed-the-maximum-filename-length-limit-of-most-filesystems" * 4
+        post.content = f"""## Description
+
+- [ ] {long_name}
+
+## Solution
+"""
+        with open(task_file, 'wb') as f:
+            frontmatter.dump(post, f, sort_keys=False)
+        
+        result = runner.invoke(cli, ["expand", "myproj.feature"])
+        assert result.exit_code == 0, f"Expand failed: {result.output}"
+        
+        # Check that a subtask file was created (truncated)
+        subtask_files = list(initialized_vault.glob("myproj.feature.this-is-very-long*.md"))
+        assert len(subtask_files) == 1, "Should create exactly one subtask file with truncated name"
+        
+        # Verify the filename is not too long (should be <= 255 chars)
+        filename = subtask_files[0].name
+        assert len(filename) <= 255, f"Filename too long: {len(filename)} chars"
 
 class TestLog:
     """Test cor log command."""
@@ -561,6 +592,42 @@ class TestTree:
         assert result.exit_code == 0
         assert "task1" in result.output.lower(), "Should show deeply nested task with depth=2"
 
+    def test_tree_focus_on_group(self, runner, initialized_vault, monkeypatch):
+        """cor tree project.group should focus on a specific task group."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project with groups
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.task1", "task work", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.task2", "task work", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.othertask", "other task", "--no-edit"])
+
+        # Focus on the group - should show only group tasks
+        result = runner.invoke(cli, ["tree", "myproj.group"])
+        assert result.exit_code == 0, f"Tree group focus failed: {result.output}"
+        
+        output = result.output.lower()
+        assert "task1" in output, "Should show task1 in group"
+        assert "task2" in output, "Should show task2 in group"
+        assert "othertask" not in output, "Should not show tasks outside the group"
+
+    def test_tree_focus_on_subgroup(self, runner, initialized_vault, monkeypatch):
+        """cor tree project.group.subgroup should focus on nested groups."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create nested structure
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.sub.task1", "deep task", "--no-edit"])
+        runner.invoke(cli, ["new", "task", "myproj.group.task2", "group task", "--no-edit"])
+
+        # Focus on the subgroup
+        result = runner.invoke(cli, ["tree", "myproj.group.sub"])
+        assert result.exit_code == 0, f"Tree subgroup focus failed: {result.output}"
+        
+        output = result.output.lower()
+        assert "task1" in output, "Should show task1 in subgroup"
+        assert "task2" not in output, "Should not show tasks in parent group"
+
 
 class TestRename:
     """Test cor rename command."""
@@ -605,8 +672,8 @@ class TestRename:
 
         # Check link updated in project
         content = (initialized_vault / "myproj.md").read_text()
-        assert "(myproj.newtask)" in content, "Project should link to renamed task"
-        assert "(myproj.oldtask)" not in content, "Old link should not exist"
+        assert "(myproj.newtask.md)" in content, "Project should link to renamed task"
+        assert "(myproj.oldtask.md)" not in content, "Old link should not exist"
 
 
 class TestGroup:
@@ -659,7 +726,7 @@ class TestGroup:
         # Check parent updated in task
         content = (initialized_vault / "myproj.mygroup.task1.md").read_text()
         assert "parent: myproj.mygroup" in content, "Parent should be updated to group"
-        assert "[< Mygroup](myproj.mygroup)" in content, "Back link should point to group"
+        assert "[< Mygroup](myproj.mygroup.md)" in content, "Back link should point to group"
 
     def test_group_updates_project_tasks_section(self, runner, initialized_vault, monkeypatch):
         """cor group should add group to project and remove old task entries."""
@@ -674,8 +741,8 @@ class TestGroup:
 
         # Check project file
         content = (initialized_vault / "myproj.md").read_text()
-        assert "(myproj.mygroup)" in content, "Project should link to group"
-        assert "(myproj.task1)" not in content, "Old task link should be removed"
+        assert "(myproj.mygroup.md)" in content, "Project should link to group"
+        assert "(myproj.task1.md)" not in content, "Old task link should be removed"
 
     def test_group_adds_tasks_to_group(self, runner, initialized_vault, monkeypatch):
         """cor group should add task entries to the group file."""
@@ -691,8 +758,8 @@ class TestGroup:
 
         # Check group file has tasks
         content = (initialized_vault / "myproj.mygroup.md").read_text()
-        assert "(myproj.mygroup.task1)" in content, "Group should link to task1"
-        assert "(myproj.mygroup.task2)" in content, "Group should link to task2"
+        assert "(myproj.mygroup.task1.md)" in content, "Group should link to task1"
+        assert "(myproj.mygroup.task2.md)" in content, "Group should link to task2"
 
     def test_group_requires_project(self, runner, initialized_vault, monkeypatch):
         """cor group should fail if project doesn't exist."""

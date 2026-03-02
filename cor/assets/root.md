@@ -2,7 +2,7 @@
 created: {date}
 modified: {date}
 ---
-# Cortex
+# Cor
 
 ## Daily
 

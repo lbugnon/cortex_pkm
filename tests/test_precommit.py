@@ -155,7 +155,7 @@ class TestArchiveUnarchive:
         run_precommit(vault)
 
         content = project.read_text()
-        assert "(archive/myproject.task1)" in content, "Parent should link to archive/task"
+        assert "(archive/myproject.task1.md)" in content, "Parent should link to archive/task"
 
     def test_reactivated_task_is_unarchived(self, project_with_tasks):
         """Task changed from done to active should be moved back from archive/"""
@@ -216,7 +216,7 @@ class TestArchiveUnarchive:
 
         # Verify archived
         content = project.read_text()
-        assert "(archive/myproject.task1)" in content
+        assert "(archive/myproject.task1.md)" in content
 
         # Reactivate
         archived_task = archive / "myproject.task1.md"
@@ -226,8 +226,8 @@ class TestArchiveUnarchive:
 
         # Link should not have archive/ prefix
         content = project.read_text()
-        assert "(myproject.task1)" in content, "Link should not have archive/ prefix"
-        assert "(archive/myproject.task1)" not in content
+        assert "(myproject.task1.md)" in content, "Link should not have archive/ prefix"
+        assert "(archive/myproject.task1.md)" not in content
 
 
 class TestGroupStatusPropagation:
@@ -482,7 +482,7 @@ class TestLinkUpdates:
         content = archived.read_text()
 
         # Link to parent should have ../ prefix
-        assert "(../myproject)" in content, \
+        assert "(../myproject.md)" in content, \
             f"Archived file should link to ../parent, got: {content}"
 
     def test_internal_links_updated_on_unarchive(self, project_with_tasks):
@@ -507,8 +507,8 @@ class TestLinkUpdates:
         content = unarchived.read_text()
 
         # Link should not have ../ prefix
-        assert "(myproject)" in content, "Unarchived file should link to parent without ../"
-        assert "(../myproject)" not in content, "Should not have ../ prefix after unarchive"
+        assert "(myproject.md)" in content, "Unarchived file should link to parent without ../"
+        assert "(../myproject.md)" not in content, "Should not have ../ prefix after unarchive"
 
 
 class TestProjectStatusPropagation:

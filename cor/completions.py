@@ -1,4 +1,4 @@
-"""Shell completion functions for Cortex CLI."""
+"""Shell completion functions for Cor CLI."""
 
 import os
 
@@ -13,6 +13,7 @@ from .utils import (
     get_all_notes,
 )
 from .search.completion import complete_files_with_fuzzy, complete_filtered_with_fuzzy
+from .config import get_focused_project
 from bibtexparser import loads as bibtex_loads
 from .bibtex import get_bib_path
 
@@ -187,6 +188,7 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
     """Shell completion for existing file names (projects and tasks).
 
     Uses prefix matching first, falls back to fuzzy matching if no prefix matches.
+    When a project is focused, only shows files from that project.
     """
     notes_dir = get_notes_dir()
     if not notes_dir.exists():
@@ -201,6 +203,9 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
     is_archive_path = incomplete.startswith("archive/")
     search_stem = incomplete[8:] if is_archive_path else incomplete
 
+    # Get focused project to filter results
+    focused = get_focused_project()
+
     # Collect file stems
     file_stems = []
     archived_stems = []
@@ -208,16 +213,35 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
     if not is_archive_path:
         for path in notes_dir.glob("*.md"):
             if path.stem not in ("root", "backlog") and not path.name.startswith("."):
-                file_stems.append(path.stem)
+                # Filter to focused project if set
+                if focused:
+                    if path.stem == focused or path.stem.startswith(f"{focused}."):
+                        file_stems.append(path.stem)
+                else:
+                    file_stems.append(path.stem)
 
     if (include_archived or is_archive_path) and archive_dir.exists():
         for path in archive_dir.glob("*.md"):
-            archived_stems.append(path.stem)
+            # Filter to focused project if set
+            if focused:
+                if path.stem == focused or path.stem.startswith(f"{focused}."):
+                    archived_stems.append(path.stem)
+            else:
+                archived_stems.append(path.stem)
 
     # Use consolidated completion logic
     from .search import fuzzy_match
 
-    return complete_files_with_fuzzy(
+
+    # If the initial string is a prefix of any project name, return only those project(s) as completions
+    projects = get_projects()
+    if search_stem:
+        matching_projects = [p for p in projects if p.startswith(search_stem)]
+        if matching_projects:
+            from click.shell_completion import CompletionItem
+            return [CompletionItem(p, help=f"Project {p}") for p in matching_projects]
+
+    completions = complete_files_with_fuzzy(
         search_stem=search_stem,
         file_stems=file_stems,
         archived_stems=archived_stems,
@@ -225,6 +249,8 @@ def complete_existing_name(ctx, param, incomplete: str) -> list:
         is_archive_path=is_archive_path,
         include_archived=include_archived
     )
+    # Sort completions by length of the completion value (shorter first)
+    return sorted(completions, key=lambda c: len(getattr(c, 'value', str(c))))
 
 
 def complete_group_project(ctx, param, incomplete: str) -> list:
@@ -261,7 +287,10 @@ def complete_project_tasks(ctx, param, incomplete: str) -> list:
 
 
 def complete_task_name(ctx, param, incomplete: str) -> list:
-    """Shell completion for task names (type: task in frontmatter)."""
+    """Shell completion for task names (type: task in frontmatter).
+    
+    When a project is focused, only shows tasks from that project.
+    """
     from .core.notes import parse_metadata
     from .search import fuzzy_match
 
@@ -276,6 +305,9 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
     is_archive_path = incomplete.startswith("archive/")
     search_stem = incomplete[8:] if is_archive_path else incomplete
 
+    # Get focused project to filter results
+    focused = get_focused_project()
+
     tasks = []
     archived_tasks = []
 
@@ -286,7 +318,12 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
                 continue
             note = parse_metadata(path)
             if note and note.note_type == "task":
-                tasks.append(path.stem)
+                # Filter to focused project if set
+                if focused:
+                    if path.stem == focused or path.stem.startswith(f"{focused}."):
+                        tasks.append(path.stem)
+                else:
+                    tasks.append(path.stem)
 
     # Collect archived task file stems
     if include_archived or is_archive_path:
@@ -295,7 +332,12 @@ def complete_task_name(ctx, param, incomplete: str) -> list:
             for path in archive_dir.glob("*.md"):
                 note = parse_metadata(path)
                 if note and note.note_type == "task":
-                    archived_tasks.append(path.stem)
+                    # Filter to focused project if set
+                    if focused:
+                        if path.stem == focused or path.stem.startswith(f"{focused}."):
+                            archived_tasks.append(path.stem)
+                    else:
+                        archived_tasks.append(path.stem)
 
     # Use consolidated completion logic with archive support
     return complete_files_with_fuzzy(
