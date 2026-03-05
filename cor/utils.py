@@ -226,7 +226,7 @@ def render_template(
     """Substitute placeholders in template."""
     now = datetime.now().strftime(DATE_TIME)
     
-    # Generate parent link if parent exists
+    # Generate parent link if parent exists (includes newline for clean formatting)
     parent_link = ""
     if parent and parent_title:
         parent_link = f"[< {parent_title}]({parent}.md)"
