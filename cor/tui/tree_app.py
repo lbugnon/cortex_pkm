@@ -408,7 +408,9 @@ class ProjectTreeApp(App):
             self.query_one("#header", Static).update(self._header_text())
 
             symbol, _ = STATUS_STYLES.get(new_status, ("[ ]", "white"))
-            self.notify(f"{symbol} {new_status}", timeout=1.5)
+            # Escape markup characters in the symbol (e.g., [/] for waiting status)
+            escaped_symbol = symbol.replace("[", "\[")
+            self.notify(f"{escaped_symbol} {new_status}", timeout=1.5)
 
         except Exception as e:
             self.notify(f"Error: {e}", severity="error")

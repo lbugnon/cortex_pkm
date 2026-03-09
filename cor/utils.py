@@ -559,55 +559,60 @@ def _apply_time_keyword(date_text: str, parsed_date: datetime) -> datetime:
     return parsed_date
 
 
-def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[str], str | None]:
-    """Parse natural language text for due dates, tags, and status.
+def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[str], str | None, str | None]:
+    """Parse natural language text for due dates, tags, status, and priority.
     
     Detects:
     - Due dates: "due <date>" or "due: <date>" where <date> can be natural language
       Supports time precision: "due tomorrow 8pm", "due tomorrow morning", "due in 48h"
     - Tags: "tag <name>" or "tag: <name>" or multiple "tag <name1> <name2>"
     - Status: "mark <status>" or "status <status>" where status is a valid task status
+    - Priority: "priority <level>" or "priority: <level>" where level is low, medium, or high
     
     Args:
-        text: Input text potentially containing due dates, tags, and status
+        text: Input text potentially containing due dates, tags, status, and priority
         
     Returns:
-        Tuple of (cleaned_text, due_date, tags, status) where:
-        - cleaned_text: text with due/tag/mark specifications removed
+        Tuple of (cleaned_text, due_date, tags, status, priority) where:
+        - cleaned_text: text with due/tag/mark/priority specifications removed
         - due_date: parsed datetime object or None
         - tags: list of tag names
         - status: parsed status (todo, active, blocked, done, waiting, dropped) or None
+        - priority: parsed priority (low, medium, high) or None
         
     Examples:
         >>> parse_natural_language_text("finish the pipeline due next friday")
-        ('finish the pipeline', datetime(...), [], None)
+        ('finish the pipeline', datetime(...), [], None, None)
         >>> parse_natural_language_text("fix bug tag urgent ml")
-        ('fix bug', None, ['urgent', 'ml'], None)
+        ('fix bug', None, ['urgent', 'ml'], None, None)
         >>> parse_natural_language_text("complete task due tomorrow tag:urgent")
-        ('complete task', datetime(...), ['urgent'], None)
+        ('complete task', datetime(...), ['urgent'], None, None)
         >>> parse_natural_language_text("review due tomorrow 8pm")
-        ('review', datetime(...), [], None)  # Tomorrow at 20:00
+        ('review', datetime(...), [], None, None)  # Tomorrow at 20:00
         >>> parse_natural_language_text("submit due tomorrow morning")
-        ('submit', datetime(...), [], None)  # Tomorrow at 09:00
+        ('submit', datetime(...), [], None, None)  # Tomorrow at 09:00
         >>> parse_natural_language_text("start work mark active")
-        ('start work', None, [], 'active')
+        ('start work', None, [], 'active', None)
+        >>> parse_natural_language_text("important task priority high")
+        ('important task', None, [], None, 'high')
     """
-    from .schema import VALID_TASK_STATUS
+    from .schema import VALID_TASK_STATUS, VALID_PRIORITY
     
     if not text:
-        return text, None, [], None
+        return text, None, [], None, None
     
     due_date = None
     tags = []
     status = None
+    priority = None
     cleaned_text = text
     
     # Pattern to match "due <date>" or "due: <date>"
     # Regex explanation:
     # - \bdue:?\s+ : Match "due" or "due:" followed by whitespace (word boundary before "due")
     # - (.+?) : Capture the date text (non-greedy)
-    # - (?=\s+tag(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|$) : Look ahead for keywords or end
-    due_pattern = r'\bdue:?\s+(.+?)(?=\s+tag(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|$)'
+    # - (?=\s+tag(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|\s+priority(?:\b|:)|$) : Look ahead for keywords or end
+    due_pattern = r'\bdue:?\s+(.+?)(?=\s+tag(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|\s+priority(?:\b|:)|$)'
     due_match = re.search(due_pattern, cleaned_text, re.IGNORECASE)
     
     if due_match:
@@ -646,7 +651,7 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
     # - \btag:?\s+ : Match "tag" or "tag:" followed by whitespace
     # - (.+?) : Capture the tag text (non-greedy)
     # - (?=\s+due|...|$) : Look ahead for other keywords or end of string
-    tag_pattern = r'\btag:?\s+(.+?)(?=\s+due(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|$)'
+    tag_pattern = r'\btag:?\s+(.+?)(?=\s+due(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|\s+priority(?:\b|:)|$)'
     tag_match = re.search(tag_pattern, cleaned_text, re.IGNORECASE)
     
     if tag_match:
@@ -659,7 +664,7 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
     
     # Pattern to match "mark <status>" or "status <status>" or "mark: <status>" or "status: <status>"
     # Valid statuses: todo, active, blocked, done, waiting, dropped
-    status_pattern = r'\b(?:mark|status):?\s+(\w+)(?=\s+due(?:\b|:)|\s+tag(?:\b|:)|$)'
+    status_pattern = r'\b(?:mark|status):?\s+(\w+)(?=\s+due(?:\b|:)|\s+tag(?:\b|:)|\s+priority(?:\b|:)|$)'
     status_match = re.search(status_pattern, cleaned_text, re.IGNORECASE)
     
     if status_match:
@@ -670,7 +675,20 @@ def parse_natural_language_text(text: str) -> tuple[str, datetime | None, list[s
             cleaned_text = cleaned_text[:status_match.start()] + cleaned_text[status_match.end():]
             cleaned_text = cleaned_text.strip()
     
-    return cleaned_text, due_date, tags, status
+    # Pattern to match "priority <level>" or "priority: <level>"
+    # Valid priorities: low, medium, high
+    priority_pattern = r'\bpriority:?\s+(\w+)(?=\s+due(?:\b|:)|\s+tag(?:\b|:)|\s+mark(?:\b|:)|\s+status(?:\b|:)|$)'
+    priority_match = re.search(priority_pattern, cleaned_text, re.IGNORECASE)
+    
+    if priority_match:
+        potential_priority = priority_match.group(1).lower()
+        if potential_priority in VALID_PRIORITY:
+            priority = potential_priority
+            # Remove the entire priority specification from text
+            cleaned_text = cleaned_text[:priority_match.start()] + cleaned_text[priority_match.end():]
+            cleaned_text = cleaned_text.strip()
+    
+    return cleaned_text, due_date, tags, status, priority
 
 
 # --- Glob pattern utilities for bulk operations ---

@@ -227,8 +227,8 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
     text_was_provided = False
     if text and note_type in ("task", "note"):
         text_was_provided = True
-        # Parse natural language dates, tags, and status
-        cleaned_text, due_date, parsed_tags, parsed_status = parse_natural_language_text(text)
+        # Parse natural language dates, tags, status, and priority
+        cleaned_text, due_date, parsed_tags, parsed_status, parsed_priority = parse_natural_language_text(text)
         
         # Update the description with cleaned text (only if there's actual text left)
         if cleaned_text:
@@ -265,6 +265,14 @@ def new(note_type: str, name: str, text: tuple[str, ...], no_edit: bool):
             with open(filepath, 'wb') as f:
                 frontmatter.dump(post, f, sort_keys=False)
             click.echo(f"Set status: {parsed_status}")
+        
+        # Set priority if parsed (only for tasks)
+        if parsed_priority and note_type == "task":
+            post = frontmatter.load(filepath)
+            post['priority'] = parsed_priority
+            with open(filepath, 'wb') as f:
+                frontmatter.dump(post, f, sort_keys=False)
+            click.echo(f"Set priority: {parsed_priority}")
     
     # Open editor only if no text was provided (and --no-edit not set)
     if not text_was_provided and not no_edit:
@@ -627,14 +635,15 @@ def _update_task_status(
     old_status = post.get('status', 'none')
     post['status'] = status
 
-    # Parse text for due dates, tags, and status
+    # Parse text for due dates, tags, status, and priority
     due_date = None
     tags = []
     text_to_append = None
+    priority = None
     
     if text:
         text_str = " ".join(text)
-        cleaned_text, due_date, parsed_tags, parsed_status = parse_natural_language_text(text_str)
+        cleaned_text, due_date, parsed_tags, parsed_status, parsed_priority = parse_natural_language_text(text_str)
         
         # Use any remaining text after parsing
         cleaned_text = cleaned_text.strip()
@@ -648,6 +657,9 @@ def _update_task_status(
         if parsed_status:
             status = parsed_status
             post['status'] = status
+        
+        # Store parsed priority for later use
+        priority = parsed_priority
     
     # If status is waiting and no due date was specified, add a due date of 1 day
     if status == "waiting" and due_date is None:
@@ -667,6 +679,10 @@ def _update_task_status(
             if tag not in existing_tags:
                 existing_tags.append(tag)
         post['tags'] = existing_tags
+    
+    # Apply priority if parsed
+    if priority:
+        post['priority'] = priority
 
     # Append remaining text if provided
     if text_to_append:
@@ -688,6 +704,8 @@ def _update_task_status(
             click.echo(f"  Set due: {due_date.strftime(DATE_TIME)}")
         if tags:
             click.echo(f"  Added tags: {', '.join(tags)}")
+        if priority:
+            click.echo(f"  Set priority: {priority}")
         if text_to_append:
             click.echo(f"  Added note: {text_to_append}")
 

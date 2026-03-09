@@ -238,6 +238,59 @@ class TestNewCommandNaturalLanguage:
         assert "tags" in post.metadata
         assert "production" in post["tags"]
 
+    def test_new_task_with_priority(self, runner, initialized_vault, monkeypatch):
+        """cor new task should parse priority from text."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project first
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+
+        # Create task with priority
+        result = runner.invoke(
+            cli,
+            ["new", "task", "myproj.mytask", "implement", "feature", "priority", "high", "--no-edit"]
+        )
+        assert result.exit_code == 0, f"New task failed: {result.output}"
+        
+        # Verify the task was created
+        task_path = initialized_vault / "myproj.mytask.md"
+        assert task_path.exists()
+        
+        # Verify the description and priority
+        post = frontmatter.load(task_path)
+        assert "implement feature" in post.content
+        assert "priority" in post.metadata
+        assert post["priority"] == "high"
+
+    def test_new_task_with_priority_and_other_features(self, runner, initialized_vault, monkeypatch):
+        """cor new task should parse priority with due date, tags, and status."""
+        monkeypatch.chdir(initialized_vault)
+
+        # Create project first
+        runner.invoke(cli, ["new", "project", "myproj", "--no-edit"])
+
+        # Create task with all features: due date, status, tags, and priority
+        result = runner.invoke(
+            cli,
+            ["new", "task", "myproj.mytask", "deploy", "app", "due", "tomorrow", "mark", "active", "tag", "production", "priority", "high", "--no-edit"]
+        )
+        assert result.exit_code == 0, f"New task failed: {result.output}"
+        
+        # Verify the task was created
+        task_path = initialized_vault / "myproj.mytask.md"
+        assert task_path.exists()
+        
+        # Verify all parsed fields
+        post = frontmatter.load(task_path)
+        assert "deploy app" in post.content
+        assert "due" in post.metadata
+        assert "status" in post.metadata
+        assert post["status"] == "active"
+        assert "tags" in post.metadata
+        assert "production" in post["tags"]
+        assert "priority" in post.metadata
+        assert post["priority"] == "high"
+
     def test_new_task_with_only_due_date_no_description(self, runner, initialized_vault, monkeypatch):
         """cor new task should work when text only contains natural language keywords.
         
